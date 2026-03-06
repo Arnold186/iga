@@ -1,0 +1,133 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  firstName String
+  lastName  String
+  email     String   @unique
+  password  String
+  role      Role     @default(STUDENT)
+  createdAt DateTime @default(now())
+
+  courses        Course[]        @relation("TeacherCourses")
+  enrollments    Enrollment[]
+  submissions    Submission[]
+  sentMessages   Message[]       @relation("SentMessages")
+  receivedMessages Message[]     @relation("ReceivedMessages")
+  otps           OTPVerification[]
+  resetTokens    PasswordResetToken[]
+}
+
+model Course {
+  id          String      @id @default(uuid())
+  title       String
+  description String
+  status      CourseStatus @default(PENDING)
+  createdAt   DateTime    @default(now())
+
+  teacherId String
+  teacher   User         @relation("TeacherCourses", fields: [teacherId], references: [id])
+
+  enrollments Enrollment[]
+  quizzes     Quiz[]
+}
+
+model Enrollment {
+  id        String   @id @default(uuid())
+  studentId String
+  courseId  String
+  createdAt DateTime @default(now())
+
+  student User   @relation(fields: [studentId], references: [id])
+  course  Course @relation(fields: [courseId], references: [id])
+
+  @@unique([studentId, courseId])
+}
+
+model Quiz {
+  id        String   @id @default(uuid())
+  title     String
+  courseId  String
+  published Boolean  @default(false)
+
+  course    Course    @relation(fields: [courseId], references: [id])
+  questions Question[]
+  submissions Submission[]
+}
+
+model Question {
+  id           String   @id @default(uuid())
+  quizId       String
+  questionText String
+  options      String   // JSON string of options array
+  correctAnswer String
+
+  quiz Quiz @relation(fields: [quizId], references: [id])
+}
+
+model Submission {
+  id        String   @id @default(uuid())
+  studentId String
+  quizId    String
+  answers   String   // JSON string of answers
+  score     Int
+  createdAt DateTime @default(now())
+
+  student User @relation(fields: [studentId], references: [id])
+  quiz    Quiz @relation(fields: [quizId], references: [id])
+
+  @@unique([studentId, quizId])
+}
+
+model Message {
+  id         String   @id @default(uuid())
+  senderId   String
+  receiverId String?  // null for group messages
+  content    String
+  timestamp  DateTime @default(now())
+
+  sender   User @relation("SentMessages", fields: [senderId], references: [id])
+  receiver User? @relation("ReceivedMessages", fields: [receiverId], references: [id])
+}
+
+model OTPVerification {
+  id         String   @id @default(uuid())
+  userId     String
+  otp        String
+  expiresAt  DateTime
+  verified   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+enum Role {
+  STUDENT
+  TEACHER
+  ADMIN
+}
+
+enum CourseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
