@@ -5,15 +5,13 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import { PasswordInput } from "../../components/PasswordInput";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { toast } from "react-toastify";
 
 const schema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   email: z.string().email(),
-  password: z.string().min(6),
-  role: z.enum(["STUDENT", "TEACHER", "ADMIN"])
+  password: z.string().min(6)
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -21,7 +19,7 @@ type FormValues = z.infer<typeof schema>;
 export const RegisterPage: React.FC = () => {
   const { register, handleSubmit, formState } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { role: "STUDENT" }
+    defaultValues: {}
   });
   const navigate = useNavigate();
 
@@ -38,7 +36,10 @@ export const RegisterPage: React.FC = () => {
   return (
     <div className="auth-layout">
       <div className="auth-card">
-        <h1 className="title">IGA LMS</h1>
+        <div className="brand">
+          <img className="brand-logo" src="/IGA.png" alt="IGA" />
+          <h1 className="brand-text">IGA</h1>
+        </div>
         <h2 className="subtitle">Create Account</h2>
         <form onSubmit={handleSubmit(onSubmit)} className="form">
           <div className="field">
@@ -66,14 +67,6 @@ export const RegisterPage: React.FC = () => {
           {formState.errors.password && (
             <span className="error">{formState.errors.password.message}</span>
           )}
-          <div className="field">
-            <label className="label">Role</label>
-            <select className="input" {...register("role")}>
-              <option value="STUDENT">Student</option>
-              <option value="TEACHER">Teacher</option>
-              <option value="ADMIN">Admin</option>
-            </select>
-          </div>
           <button className="btn primary" type="submit" disabled={formState.isSubmitting}>
             {formState.isSubmitting ? "Creating..." : "Create account"}
           </button>
@@ -83,7 +76,6 @@ export const RegisterPage: React.FC = () => {
           <Link to="/login">Login</Link>
         </div>
       </div>
-      <ToastContainer position="top-right" />
     </div>
   );
 };

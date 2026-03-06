@@ -9,6 +9,8 @@ import { ResetPasswordPage } from "./pages/auth/ResetPasswordPage";
 import { StudentDashboard } from "./pages/dashboard/StudentDashboard";
 import { TeacherDashboard } from "./pages/dashboard/TeacherDashboard";
 import { AdminDashboard } from "./pages/dashboard/AdminDashboard";
+import { ToastContainer } from "react-toastify";
+import "react-toastify/dist/ReactToastify.css";
 
 const AppRoutes: React.FC = () => {
   const { user } = useAuth();
@@ -62,6 +64,7 @@ const App: React.FC = () => {
   return (
     <AuthProvider>
       <AppRoutes />
+      <ToastContainer position="top-right" />
     </AuthProvider>
   );
 };

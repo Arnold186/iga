@@ -13,7 +13,10 @@ export const DashboardShell: React.FC<Props> = ({ children, subtitle }) => {
     <div className="dashboard-layout">
       <header className="topbar">
         <div className="topbar-title">
-          <span>IGA LMS</span>
+          <div className="topbar-brand">
+            <img src="/IGA.png" alt="IGA" />
+            <span className="topbar-brand-text">IGA</span>
+          </div>
           <span>{subtitle}</span>
         </div>
         <div className="topbar-actions">

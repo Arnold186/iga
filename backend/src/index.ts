@@ -46,28 +46,53 @@ io.on("connection", (socket) => {
   const user = (socket as any).user as SocketUser;
   console.log("Socket connected", user.email);
 
-  socket.on("groupMessage", async (content: string) => {
+  socket.on("send_message", async (content: string) => {
     if (!content?.trim()) return;
     const msg = await prisma.message.create({
       data: {
         senderId: user.id,
         content,
         receiverId: null
+      },
+      include: {
+        sender: true
       }
     });
-    io.to("group").emit("groupMessage", msg);
+    const payload = {
+      id: msg.id,
+      content: msg.content,
+      createdAt: msg.createdAt,
+      senderId: msg.senderId,
+      receiverId: msg.receiverId,
+      senderName: `${msg.sender.firstName} ${msg.sender.lastName}`.trim(),
+      senderRole: msg.sender.role
+    };
+    io.to("group").emit("receive_message", payload);
   });
 
-  socket.on("privateMessage", async (payload: { receiverId: string; content: string }) => {
+  socket.on("direct_message", async (payload: { receiverId: string; content: string }) => {
     if (!payload.content?.trim()) return;
     const msg = await prisma.message.create({
       data: {
         senderId: user.id,
         receiverId: payload.receiverId,
         content: payload.content
+      },
+      include: {
+        sender: true
       }
     });
-    io.to(user.id).to(payload.receiverId).emit("privateMessage", msg);
+    const enriched = {
+      id: msg.id,
+      content: msg.content,
+      createdAt: msg.createdAt,
+      senderId: msg.senderId,
+      receiverId: msg.receiverId,
+      senderName: `${msg.sender.firstName} ${msg.sender.lastName}`.trim(),
+      senderRole: msg.sender.role
+    };
+    io.to(user.id).emit("receive_direct_message", enriched);
+    io.to(payload.receiverId).emit("receive_direct_message", enriched);
   });
 
   socket.on("disconnect", () => {

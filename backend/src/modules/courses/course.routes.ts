@@ -4,14 +4,51 @@ import { Role, CourseStatus } from "@prisma/client";
 import { prisma } from "../../prisma/client";
 import { z } from "zod";
 import { validateBody } from "../../middleware/validate";
+import { upload, uploadToCloudinary } from "../../utils/cloudinary";
 
 const router = Router();
+
+const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const ALLOWED_DOC_TYPES = [
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+];
 
 const createCourseSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1)
 });
 
+/**
+ * @swagger
+ * /api/courses:
+ *   post:
+ *     tags: [Courses]
+ *     summary: Create course (Teacher only)
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [title, description]
+ *             properties:
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Course created
+ *   get:
+ *     tags: [Courses]
+ *     summary: "List courses (role-based: students see approved, teachers see own, admin sees all)"
+ *     responses:
+ *       200:
+ *         description: List of courses
+ */
 router.post(
   "/",
   authenticate,
@@ -60,6 +97,16 @@ router.get("/", authenticate, async (req, res) => {
   return res.json(courses);
 });
 
+/**
+ * @swagger
+ * /api/courses/enrolled:
+ *   get:
+ *     tags: [Courses]
+ *     summary: Get enrolled courses (Student only)
+ *     responses:
+ *       200:
+ *         description: List of enrolled courses
+ */
 router.get("/enrolled", authenticate, requireRole([Role.STUDENT]), async (req, res) => {
   const enrollments = await prisma.enrollment.findMany({
     where: { studentId: req.user!.id },
@@ -68,6 +115,23 @@ router.get("/enrolled", authenticate, requireRole([Role.STUDENT]), async (req, r
   res.json(enrollments.map((e) => e.course));
 });
 
+/**
+ * @swagger
+ * /api/courses/{id}/enroll:
+ *   post:
+ *     tags: [Courses]
+ *     summary: Enroll in course (Student only)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Enrollment created or updated
+ *       404:
+ *         description: Course not found or not approved
+ */
 router.post("/:id/enroll", authenticate, requireRole([Role.STUDENT]), async (req, res) => {
   const { id } = req.params;
 
@@ -95,6 +159,192 @@ router.post("/:id/enroll", authenticate, requireRole([Role.STUDENT]), async (req
   res.json(enrollment);
 });
 
+/**
+ * @swagger
+ * /api/courses/{id}/image:
+ *   post:
+ *     tags: [Courses]
+ *     summary: Upload course image (Teacher, own courses only)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: Image uploaded
+ *       400:
+ *         description: Invalid file type
+ */
+router.post(
+  "/:id/image",
+  authenticate,
+  requireRole([Role.TEACHER]),
+  upload.single("file"),
+  async (req, res) => {
+    const { id } = req.params;
+
+    const course = await prisma.course.findUnique({ where: { id } });
+    if (!course) {
+      return res.status(404).json({ message: "Course not found" });
+    }
+    if (course.teacherId !== req.user!.id) {
+      return res.status(403).json({ message: "You can only upload images for your own courses" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+    if (!ALLOWED_IMAGE_TYPES.includes(req.file.mimetype)) {
+      return res.status(400).json({ message: "Invalid file type. Allowed: JPEG, PNG, WebP, GIF" });
+    }
+
+    const result = await uploadToCloudinary(req.file.buffer, "iga/course-images", "image");
+
+    const updated = await prisma.course.update({
+      where: { id },
+      data: { image: result.url }
+    });
+
+    res.status(201).json({ image: result.url, course: updated });
+  }
+);
+
+/**
+ * @swagger
+ * /api/courses/{id}/documents:
+ *   post:
+ *     tags: [Courses]
+ *     summary: Upload course document - PDF, Word, PowerPoint (Teacher, own courses only)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *               title:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Document uploaded
+ *       400:
+ *         description: Invalid file type
+ */
+router.post(
+  "/:id/documents",
+  authenticate,
+  requireRole([Role.TEACHER]),
+  upload.single("file"),
+  async (req, res) => {
+    const { id } = req.params;
+    const title = (req.body.title as string) || req.file?.originalname || "Document";
+
+    const course = await prisma.course.findUnique({ where: { id } });
+    if (!course) {
+      return res.status(404).json({ message: "Course not found" });
+    }
+    if (course.teacherId !== req.user!.id) {
+      return res.status(403).json({ message: "You can only upload documents for your own courses" });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded" });
+    }
+    if (!ALLOWED_DOC_TYPES.includes(req.file.mimetype)) {
+      return res.status(400).json({
+        message: "Invalid file type. Allowed: PDF, Word (.doc, .docx), PowerPoint (.ppt, .pptx)"
+      });
+    }
+
+    const ext = req.file.originalname.split(".").pop()?.toLowerCase() || "pdf";
+    const result = await uploadToCloudinary(req.file.buffer, "iga/course-documents", "raw");
+
+    const doc = await prisma.courseDocument.create({
+      data: {
+        courseId: id,
+        title,
+        url: result.url,
+        fileType: ext
+      }
+    });
+
+    res.status(201).json(doc);
+  }
+);
+
+/**
+ * @swagger
+ * /api/courses/{id}:
+ *   get:
+ *     tags: [Courses]
+ *     summary: Get course by ID with teacher and documents
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Course details
+ *       404:
+ *         description: Course not found
+ */
+router.get("/:id", authenticate, async (req, res) => {
+  const { id } = req.params;
+
+  const course = await prisma.course.findUnique({
+    where: { id },
+    include: { teacher: true, documents: true }
+  });
+
+  if (!course) {
+    return res.status(404).json({ message: "Course not found" });
+  }
+
+  res.json(course);
+});
+
+/**
+ * @swagger
+ * /api/courses/{id}/status:
+ *   patch:
+ *     tags: [Courses]
+ *     summary: Update course status (Admin only)
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [PENDING, APPROVED, REJECTED]
+ *     responses:
+ *       200:
+ *         description: Course updated
+ */
 router.patch(
   "/:id/status",
   authenticate,

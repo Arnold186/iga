@@ -5,8 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { PasswordInput } from "../../components/PasswordInput";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { toast } from "react-toastify";
 
 const schema = z.object({
   email: z.string().email(),
@@ -38,7 +37,10 @@ export const LoginPage: React.FC = () => {
   return (
     <div className="auth-layout">
       <div className="auth-card">
-        <h1 className="title">IGA LMS</h1>
+        <div className="brand">
+          <img className="brand-logo" src="/IGA.png" alt="IGA" />
+          <h1 className="brand-text">IGA</h1>
+        </div>
         <h2 className="subtitle">Login</h2>
         <form onSubmit={handleSubmit(onSubmit)} className="form">
           <div className="field">
@@ -68,7 +70,6 @@ export const LoginPage: React.FC = () => {
           <Link to="/register">Create an account</Link>
         </div>
       </div>
-      <ToastContainer position="top-right" />
     </div>
   );
 };

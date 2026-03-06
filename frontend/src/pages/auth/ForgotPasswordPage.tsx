@@ -4,8 +4,7 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
 import { Link } from "react-router-dom";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { toast } from "react-toastify";
 
 const schema = z.object({
   email: z.string().email()
@@ -30,7 +29,10 @@ export const ForgotPasswordPage: React.FC = () => {
   return (
     <div className="auth-layout">
       <div className="auth-card">
-        <h1 className="title">IGA LMS</h1>
+        <div className="brand">
+          <img className="brand-logo" src="/IGA.png" alt="IGA" />
+          <h1 className="brand-text">IGA</h1>
+        </div>
         <h2 className="subtitle">Forgot Password</h2>
         <form onSubmit={handleSubmit(onSubmit)} className="form">
           <div className="field">
@@ -48,7 +50,6 @@ export const ForgotPasswordPage: React.FC = () => {
           <Link to="/login">Back to login</Link>
         </div>
       </div>
-      <ToastContainer position="top-right" />
     </div>
   );
 };

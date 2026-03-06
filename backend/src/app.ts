@@ -7,8 +7,11 @@ import courseRoutes from "./modules/courses/course.routes";
 import quizRoutes from "./modules/quizzes/quiz.routes";
 import chatRoutes from "./modules/chat/chat.routes";
 import adminRoutes from "./modules/admin/admin.routes";
+import userRoutes from "./modules/users/user.routes";
+import assignmentRoutes from "./modules/assignments/assignment.routes";
 import { errorHandler } from "./middleware/errorHandler";
 import { env } from "./config/env";
+import { setupSwagger } from "./docs/swagger";
 
 export function createApp() {
   const app = express();
@@ -22,6 +25,8 @@ export function createApp() {
   app.use(express.json());
   app.use(morgan("dev"));
 
+  setupSwagger(app);
+
   app.get("/health", (_req, res) => {
     res.json({ status: "ok" });
   });
@@ -31,6 +36,8 @@ export function createApp() {
   app.use("/api/quizzes", quizRoutes);
   app.use("/api/chat", chatRoutes);
   app.use("/api/admin", adminRoutes);
+  app.use("/api/users", userRoutes);
+  app.use("/api/assignments", assignmentRoutes);
 
   app.use(errorHandler);
 

@@ -9,15 +9,20 @@ import {
 import { Role } from "@prisma/client";
 
 export async function registerHandler(req: Request, res: Response) {
-  const { firstName, lastName, email, password, role } = req.body as {
+  const { firstName, lastName, email, password } = req.body as {
     firstName: string;
     lastName: string;
     email: string;
     password: string;
-    role: Role;
   };
 
-  const result = await registerUser({ firstName, lastName, email, password, role });
+  const result = await registerUser({
+    firstName,
+    lastName,
+    email,
+    password,
+    role: Role.STUDENT
+  });
   res.status(201).json({
     message: "Registered successfully. Please verify OTP sent to your email.",
     user: result

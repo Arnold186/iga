@@ -14,6 +14,7 @@ model User {
   email     String   @unique
   password  String
   role      Role     @default(STUDENT)
+  profileImage String?
   createdAt DateTime @default(now())
 
   courses        Course[]        @relation("TeacherCourses")
@@ -21,6 +22,7 @@ model User {
   submissions    Submission[]
   sentMessages   Message[]       @relation("SentMessages")
   receivedMessages Message[]     @relation("ReceivedMessages")
+  assignments    Assignment[]
   otps           OTPVerification[]
   resetTokens    PasswordResetToken[]
 }
@@ -29,6 +31,7 @@ model Course {
   id          String      @id @default(uuid())
   title       String
   description String
+  image       String?
   status      CourseStatus @default(PENDING)
   createdAt   DateTime    @default(now())
 
@@ -37,6 +40,19 @@ model Course {
 
   enrollments Enrollment[]
   quizzes     Quiz[]
+  assignments Assignment[]
+  documents   CourseDocument[]
+}
+
+model CourseDocument {
+  id        String   @id @default(uuid())
+  courseId  String
+  title     String
+  url       String
+  fileType  String   // pdf, doc, docx, ppt, pptx
+  createdAt DateTime @default(now())
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 }
 
 model Enrollment {
@@ -91,10 +107,23 @@ model Message {
   senderId   String
   receiverId String?  // null for group messages
   content    String
-  timestamp  DateTime @default(now())
+  createdAt  DateTime @default(now())
 
   sender   User @relation("SentMessages", fields: [senderId], references: [id])
   receiver User? @relation("ReceivedMessages", fields: [receiverId], references: [id])
+}
+
+model Assignment {
+  id          String           @id @default(uuid())
+  title       String
+  description String
+  courseId    String
+  teacherId   String
+  status      AssignmentStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+
+  course  Course @relation(fields: [courseId], references: [id])
+  teacher User   @relation(fields: [teacherId], references: [id])
 }
 
 model OTPVerification {
@@ -126,6 +155,12 @@ enum Role {
 }
 
 enum CourseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AssignmentStatus {
   PENDING
   APPROVED
   REJECTED

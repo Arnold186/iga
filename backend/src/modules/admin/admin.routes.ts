@@ -1,14 +1,116 @@
 import { Router } from "express";
 import { authenticate, requireRole } from "../../middleware/auth";
-import { Role } from "@prisma/client";
+import { Role, AssignmentStatus } from "@prisma/client";
 import { prisma } from "../../prisma/client";
+import bcrypt from "bcryptjs";
+import { z } from "zod";
+import { validateBody } from "../../middleware/validate";
 
 const router = Router();
 
+const registerTeacherSchema = z.object({
+  firstName: z.string().min(1),
+  lastName: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(6)
+});
+
 router.use(authenticate, requireRole([Role.ADMIN]));
 
+/**
+ * @swagger
+ * /api/admin/users:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List all users
+ *     responses:
+ *       200:
+ *         description: All users
+ */
 router.get("/users", async (_req, res) => {
   const users = await prisma.user.findMany({
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      role: true,
+      profileImage: true,
+      createdAt: true
+    }
+  });
+  res.json(users);
+});
+
+/**
+ * @swagger
+ * /api/admin/teachers:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List all teachers
+ *     responses:
+ *       200:
+ *         description: All teachers
+ *   post:
+ *     tags: [Admin]
+ *     summary: Register teacher
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [firstName, lastName, email, password]
+ *             properties:
+ *               firstName:
+ *                 type: string
+ *               lastName:
+ *                 type: string
+ *               email:
+ *                 type: string
+ *               password:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Teacher created
+ */
+router.get("/teachers", async (_req, res) => {
+  const teachers = await prisma.user.findMany({
+    where: { role: Role.TEACHER },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      profileImage: true,
+      createdAt: true
+    }
+  });
+  res.json(teachers);
+});
+
+router.post("/teachers", validateBody(registerTeacherSchema), async (req, res) => {
+  const { firstName, lastName, email, password } = req.body as {
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+  };
+
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    return res.status(400).json({ message: "Email already in use" });
+  }
+
+  const hash = await bcrypt.hash(password, 10);
+
+  const teacher = await prisma.user.create({
+    data: {
+      firstName,
+      lastName,
+      email,
+      password: hash,
+      role: Role.TEACHER
+    },
     select: {
       id: true,
       firstName: true,
@@ -18,9 +120,45 @@ router.get("/users", async (_req, res) => {
       createdAt: true
     }
   });
-  res.json(users);
+
+  res.status(201).json(teacher);
 });
 
+/**
+ * @swagger
+ * /api/admin/students:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List all students
+ *     responses:
+ *       200:
+ *         description: All students
+ */
+router.get("/students", async (_req, res) => {
+  const students = await prisma.user.findMany({
+    where: { role: Role.STUDENT },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      profileImage: true,
+      createdAt: true
+    }
+  });
+  res.json(students);
+});
+
+/**
+ * @swagger
+ * /api/admin/analytics:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Dashboard analytics
+ *     responses:
+ *       200:
+ *         description: studentsCount, coursesCount, averagePerformance
+ */
 router.get("/analytics", async (_req, res) => {
   const [studentsCount, coursesCount, submissions] = await Promise.all([
     prisma.user.count({ where: { role: Role.STUDENT } }),
@@ -52,6 +190,85 @@ router.get("/analytics", async (_req, res) => {
     coursesCount,
     averagePerformance
   });
+});
+
+/**
+ * @swagger
+ * /api/admin/assignments:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List all assignments for review
+ *     responses:
+ *       200:
+ *         description: All assignments
+ */
+router.get("/assignments", async (_req, res) => {
+  const assignments = await prisma.assignment.findMany({
+    include: {
+      course: true,
+      teacher: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          email: true
+        }
+      }
+    }
+  });
+  res.json(assignments);
+});
+
+/**
+ * @swagger
+ * /api/admin/assignments/{id}/approve:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Approve assignment
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Assignment approved
+ */
+router.patch("/assignments/:id/approve", async (req, res) => {
+  const { id } = req.params;
+
+  const assignment = await prisma.assignment.update({
+    where: { id },
+    data: { status: AssignmentStatus.APPROVED }
+  });
+
+  res.json(assignment);
+});
+
+/**
+ * @swagger
+ * /api/admin/assignments/{id}/reject:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Reject assignment
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Assignment rejected
+ */
+router.patch("/assignments/:id/reject", async (req, res) => {
+  const { id } = req.params;
+
+  const assignment = await prisma.assignment.update({
+    where: { id },
+    data: { status: AssignmentStatus.REJECTED }
+  });
+
+  res.json(assignment);
 });
 
 export default router;

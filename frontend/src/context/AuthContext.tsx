@@ -34,7 +34,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   useEffect(() => {
-    axios.defaults.baseURL = "http://localhost:4000";
+    axios.defaults.baseURL = "http://localhost:4010";
   }, []);
 
   useEffect(() => {

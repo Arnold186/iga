@@ -5,8 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import axios from "axios";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { PasswordInput } from "../../components/PasswordInput";
-import { toast, ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { toast } from "react-toastify";
 
 const schema = z.object({
   password: z.string().min(6)
@@ -40,7 +39,10 @@ export const ResetPasswordPage: React.FC = () => {
     return (
       <div className="auth-layout">
         <div className="auth-card">
-          <h1 className="title">IGA LMS</h1>
+          <div className="brand">
+            <img className="brand-logo" src="/IGA.png" alt="IGA" />
+            <h1 className="brand-text">IGA</h1>
+          </div>
           <h2 className="subtitle">Reset Password</h2>
           <p>Invalid or missing reset token.</p>
           <div className="auth-links">
@@ -54,7 +56,10 @@ export const ResetPasswordPage: React.FC = () => {
   return (
     <div className="auth-layout">
       <div className="auth-card">
-        <h1 className="title">IGA LMS</h1>
+        <div className="brand">
+          <img className="brand-logo" src="/IGA.png" alt="IGA" />
+          <h1 className="brand-text">IGA</h1>
+        </div>
         <h2 className="subtitle">Reset Password</h2>
         <form onSubmit={handleSubmit(onSubmit)} className="form">
           <PasswordInput label="New password" {...register("password")} />
@@ -69,7 +74,6 @@ export const ResetPasswordPage: React.FC = () => {
           <Link to="/login">Back to login</Link>
         </div>
       </div>
-      <ToastContainer position="top-right" />
     </div>
   );
 };

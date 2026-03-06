@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { DashboardShell } from "./DashboardShell";
 import { ChatPanel } from "../../components/ChatPanel";
+import { ProfileCard } from "../../components/ProfileCard";
 
 interface Course {
   id: string;
@@ -21,10 +22,20 @@ interface Submission {
   };
 }
 
+interface Assignment {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  createdAt: string;
+  course: { id: string; title: string };
+}
+
 export const StudentDashboard: React.FC = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [enrolledIds, setEnrolledIds] = useState<Set<string>>(new Set());
   const [submissions, setSubmissions] = useState<Submission[]>([]);
+  const [assignments, setAssignments] = useState<Assignment[]>([]);
 
   useEffect(() => {
     axios
@@ -40,6 +51,11 @@ export const StudentDashboard: React.FC = () => {
     axios
       .get<Submission[]>("/api/quizzes/my")
       .then((res) => setSubmissions(res.data))
+      .catch(() => {});
+
+    axios
+      .get<Assignment[]>("/api/assignments")
+      .then((res) => setAssignments(res.data))
       .catch(() => {});
   }, []);
 
@@ -57,6 +73,8 @@ export const StudentDashboard: React.FC = () => {
     <DashboardShell subtitle="Student Dashboard">
       <div className="page-grid">
         <div>
+          <ProfileCard />
+
           <div className="card">
             <h2 className="card-title">My Courses</h2>
             <p className="card-subtitle">Courses you are enrolled in.</p>
@@ -90,6 +108,25 @@ export const StudentDashboard: React.FC = () => {
                 </div>
               ))}
               {availableCourses.length === 0 && <p>No more courses available.</p>}
+            </div>
+          </div>
+
+          <div className="card" style={{ marginTop: "1.2rem" }}>
+            <h2 className="card-title">Assignments</h2>
+            <p className="card-subtitle">Approved assignments from your courses.</p>
+            <div className="list">
+              {assignments.map((a) => (
+                <div key={a.id} className="list-item">
+                  <div>
+                    <div>{a.title}</div>
+                    <small>
+                      {a.course.title} • {a.description}
+                    </small>
+                  </div>
+                  <span className="badge info">{new Date(a.createdAt).toLocaleDateString()}</span>
+                </div>
+              ))}
+              {assignments.length === 0 && <p>No assignments yet.</p>}
             </div>
           </div>
 

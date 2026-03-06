@@ -54,7 +54,7 @@ IGA is a production-ready online Learning Management System built with:
    npm run dev
    ```
 
-   Backend runs on `http://localhost:4000`.
+   Backend runs on `http://localhost:4010`.
 
 ### Frontend setup
 
@@ -82,7 +82,7 @@ IGA is a production-ready online Learning Management System built with:
 
 See `backend/.env.example`:
 
-- `PORT` – backend port (default `4000`)
+- `PORT` – backend port (default `4010`)
 - `DATABASE_URL` – PostgreSQL connection string
 - `JWT_SECRET` – strong JWT signing secret
 - `JWT_EXPIRES_IN` – JWT expiry, e.g. `7d`
