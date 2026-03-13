@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { env } from "../../config/env";
 import crypto from "crypto";
+import { logActivity } from "../../utils/activityLog";
 // import nodemailer from "nodemailer";
 import { Role } from "@prisma/client";
 
@@ -35,6 +36,8 @@ export async function registerUser(params: {
     }
   });
 
+  await logActivity(user.id, "User registered");
+
   // Skip OTP generation and email sending so that
   // registration can succeed immediately without SMTP.
   return { id: user.id, email: user.email };
@@ -50,6 +53,9 @@ export async function login(email: string, password: string) {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
     throw { status: 400, message: "Invalid credentials" };
+  }
+  if (!user.isActive) {
+    throw { status: 403, message: "Account is deactivated" };
   }
 
   const isMatch = await bcrypt.compare(password, user.password);

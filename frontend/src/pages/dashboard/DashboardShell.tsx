@@ -1,5 +1,6 @@
 import React from "react";
 import { useAuth } from "../../context/AuthContext";
+import { NotificationPanel } from "../../components/NotificationPanel";
 
 interface Props {
   children: React.ReactNode;
@@ -19,9 +20,10 @@ export const DashboardShell: React.FC<Props> = ({ children, subtitle }) => {
           </div>
           <span>{subtitle}</span>
         </div>
-        <div className="topbar-actions">
+        <div className="topbar-actions" style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           {user && (
             <>
+              <NotificationPanel />
               <span className="topbar-user">
                 {user.firstName} {user.lastName}
               </span>

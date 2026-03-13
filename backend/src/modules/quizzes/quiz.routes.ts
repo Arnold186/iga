@@ -147,6 +147,32 @@ router.get(
   }
 );
 
+/**
+ * @swagger
+ * /api/quizzes/{id}:
+ *   get:
+ *     tags: [Quizzes]
+ *     summary: Get quiz by ID with questions
+ */
+router.get("/:id", authenticate, async (req, res) => {
+  const { id } = req.params;
+  const quiz = await prisma.quiz.findUnique({
+    where: { id },
+    include: { questions: true, course: true }
+  });
+  if (!quiz) return res.status(404).json({ message: "Quiz not found" });
+  if (req.user!.role === Role.STUDENT) {
+    const enrollment = await prisma.enrollment.findFirst({
+      where: { courseId: quiz.courseId, studentId: req.user!.id }
+    });
+    if (!enrollment) return res.status(403).json({ message: "You are not enrolled in this course" });
+    if (!quiz.published) return res.status(403).json({ message: "Quiz is not published" });
+  } else if (req.user!.role === Role.TEACHER && quiz.course.teacherId !== req.user!.id) {
+    return res.status(403).json({ message: "Not your quiz" });
+  }
+  res.json(quiz);
+});
+
 router.post(
   "/:id/submit",
   authenticate,

@@ -2,10 +2,12 @@ import React from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import axios from "axios";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { PasswordInput } from "../../components/PasswordInput";
 import { toast } from "react-toastify";
+import { api } from "../../services/api";
+import { AuthLayout } from "../../layouts/AuthLayout";
+import { Button } from "../../components/ui/button";
 
 const schema = z.object({
   password: z.string().min(6)
@@ -24,7 +26,7 @@ export const ResetPasswordPage: React.FC = () => {
 
   const onSubmit = async (data: FormValues) => {
     try {
-      await axios.post("/api/auth/reset-password", {
+      await api.post("/api/auth/reset-password", {
         token,
         password: data.password
       });
@@ -37,44 +39,42 @@ export const ResetPasswordPage: React.FC = () => {
 
   if (!token) {
     return (
-      <div className="auth-layout">
-        <div className="auth-card">
-          <div className="brand">
-            <img className="brand-logo" src="/IGA.png" alt="IGA" />
-            <h1 className="brand-text">IGA</h1>
-          </div>
-          <h2 className="subtitle">Reset Password</h2>
-          <p>Invalid or missing reset token.</p>
-          <div className="auth-links">
-            <Link to="/login">Back to login</Link>
-          </div>
+      <AuthLayout
+        title="Reset password"
+        subtitle="This reset link is invalid or expired."
+        footer={
+          <Link className="text-primary hover:underline" to="/login">
+            Back to login
+          </Link>
+        }
+      >
+        <div className="text-sm text-muted-foreground">
+          Please request a new password reset link and try again.
         </div>
-      </div>
+      </AuthLayout>
     );
   }
 
   return (
-    <div className="auth-layout">
-      <div className="auth-card">
-        <div className="brand">
-          <img className="brand-logo" src="/IGA.png" alt="IGA" />
-          <h1 className="brand-text">IGA</h1>
-        </div>
-        <h2 className="subtitle">Reset Password</h2>
-        <form onSubmit={handleSubmit(onSubmit)} className="form">
-          <PasswordInput label="New password" {...register("password")} />
-          {formState.errors.password && (
-            <span className="error">{formState.errors.password.message}</span>
-          )}
-          <button className="btn primary" type="submit" disabled={formState.isSubmitting}>
-            {formState.isSubmitting ? "Updating..." : "Update password"}
-          </button>
-        </form>
-        <div className="auth-links">
-          <Link to="/login">Back to login</Link>
-        </div>
-      </div>
-    </div>
+    <AuthLayout
+      title="Reset password"
+      subtitle="Create a new password for your account."
+      footer={
+        <Link className="text-primary hover:underline" to="/login">
+          Back to login
+        </Link>
+      }
+    >
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <PasswordInput label="New password" placeholder="At least 6 characters" {...register("password")} />
+        {formState.errors.password && (
+          <div className="text-xs text-red-600">{formState.errors.password.message}</div>
+        )}
+        <Button className="w-full" type="submit" disabled={formState.isSubmitting}>
+          {formState.isSubmitting ? "Updating…" : "Update password"}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 };
 

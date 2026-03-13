@@ -10,7 +10,39 @@ cloudinary.config({
 
 const storage = multer.memoryStorage();
 
-export const upload = multer({ storage });
+const FILE_SIZE_LIMIT = 10 * 1024 * 1024; // 10MB
+
+const ALLOWED_IMAGE_MIMES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+const ALLOWED_DOC_MIMES = [
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+];
+
+export const upload = multer({
+  storage,
+  limits: { fileSize: FILE_SIZE_LIMIT }
+});
+
+export const uploadImage = multer({
+  storage,
+  limits: { fileSize: FILE_SIZE_LIMIT },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_IMAGE_MIMES.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Invalid file type. Allowed: JPEG, PNG, WebP, GIF"));
+  }
+});
+
+export const uploadDocument = multer({
+  storage,
+  limits: { fileSize: FILE_SIZE_LIMIT },
+  fileFilter: (_req, file, cb) => {
+    if (ALLOWED_DOC_MIMES.includes(file.mimetype)) cb(null, true);
+    else cb(new Error("Invalid file type. Allowed: PDF, DOC, DOCX, PPT, PPTX"));
+  }
+});
 
 export async function uploadToCloudinary(
   fileBuffer: Buffer,

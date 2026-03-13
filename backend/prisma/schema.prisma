@@ -8,23 +8,29 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  firstName String
-  lastName  String
-  email     String   @unique
-  password  String
-  role      Role     @default(STUDENT)
+  id           String    @id @default(uuid())
+  firstName    String
+  lastName     String
+  email        String    @unique
+  password     String
+  role         Role      @default(STUDENT)
   profileImage String?
-  createdAt DateTime @default(now())
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @default(now()) @updatedAt
 
-  courses        Course[]        @relation("TeacherCourses")
-  enrollments    Enrollment[]
-  submissions    Submission[]
-  sentMessages   Message[]       @relation("SentMessages")
-  receivedMessages Message[]     @relation("ReceivedMessages")
-  assignments    Assignment[]
-  otps           OTPVerification[]
-  resetTokens    PasswordResetToken[]
+  courses              Course[]             @relation("TeacherCourses")
+  enrollments          Enrollment[]
+  submissions          Submission[]
+  sentMessages         Message[]            @relation("SentMessages")
+  receivedMessages     Message[]            @relation("ReceivedMessages")
+  assignments          Assignment[]
+  assignmentSubmissions AssignmentSubmission[]
+  otps                 OTPVerification[]
+  resetTokens          PasswordResetToken[]
+  notifications        Notification[]
+  activityLogs         ActivityLog[]
+  courseRatings        CourseRating[]
 }
 
 model Course {
@@ -38,10 +44,12 @@ model Course {
   teacherId String
   teacher   User         @relation("TeacherCourses", fields: [teacherId], references: [id])
 
-  enrollments Enrollment[]
-  quizzes     Quiz[]
-  assignments Assignment[]
-  documents   CourseDocument[]
+  enrollments    Enrollment[]
+  quizzes       Quiz[]
+  assignments   Assignment[]
+  documents     CourseDocument[]
+  modules       Module[]
+  ratings       CourseRating[]
 }
 
 model CourseDocument {
@@ -122,8 +130,79 @@ model Assignment {
   status      AssignmentStatus @default(PENDING)
   createdAt   DateTime         @default(now())
 
-  course  Course @relation(fields: [courseId], references: [id])
-  teacher User   @relation(fields: [teacherId], references: [id])
+  course      Course               @relation(fields: [courseId], references: [id])
+  teacher     User                 @relation(fields: [teacherId], references: [id])
+  submissions AssignmentSubmission[]
+}
+
+model AssignmentSubmission {
+  id            String   @id @default(uuid())
+  assignmentId  String
+  studentId     String
+  fileUrl       String
+  grade         Int?
+  createdAt     DateTime @default(now())
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student    User       @relation(fields: [studentId], references: [id])
+
+  @@unique([assignmentId, studentId])
+}
+
+model Module {
+  id        String   @id @default(uuid())
+  courseId  String
+  title     String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  course  Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
+}
+
+model Lesson {
+  id        String   @id @default(uuid())
+  moduleId  String
+  title     String
+  url       String
+  fileType  String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+}
+
+model CourseRating {
+  id        String   @id @default(uuid())
+  courseId  String
+  studentId String
+  rating    Int
+  review    String?
+  createdAt DateTime @default(now())
+
+  course  Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  student User   @relation(fields: [studentId], references: [id])
+
+  @@unique([courseId, studentId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
 }
 
 model OTPVerification {
@@ -158,6 +237,7 @@ enum CourseStatus {
   PENDING
   APPROVED
   REJECTED
+  ARCHIVED
 }
 
 enum AssignmentStatus {

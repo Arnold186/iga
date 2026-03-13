@@ -36,10 +36,68 @@ router.get("/users", async (_req, res) => {
       email: true,
       role: true,
       profileImage: true,
+      isActive: true,
       createdAt: true
     }
   });
   res.json(users);
+});
+
+/**
+ * @swagger
+ * /api/admin/users/{id}/status:
+ *   patch:
+ *     tags: [Admin]
+ *     summary: Activate or deactivate user
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               isActive:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: User status updated
+ */
+router.patch(
+  "/users/:id/status",
+  validateBody(z.object({ isActive: z.boolean() })),
+  async (req, res) => {
+    const { id } = req.params;
+    const { isActive } = req.body as { isActive: boolean };
+    const user = await prisma.user.update({
+      where: { id },
+      data: { isActive },
+      select: { id: true, email: true, isActive: true }
+    });
+    res.json(user);
+  }
+);
+
+router.post("/register-teacher", validateBody(registerTeacherSchema), async (req, res) => {
+  const { firstName, lastName, email, password } = req.body as {
+    firstName: string;
+    lastName: string;
+    email: string;
+    password: string;
+  };
+  const existing = await prisma.user.findUnique({ where: { email } });
+  if (existing) {
+    return res.status(400).json({ message: "Email already in use" });
+  }
+  const hash = await bcrypt.hash(password, 10);
+  const teacher = await prisma.user.create({
+    data: { firstName, lastName, email, password: hash, role: Role.TEACHER },
+    select: { id: true, firstName: true, lastName: true, email: true, role: true, createdAt: true }
+  });
+  res.status(201).json(teacher);
 });
 
 /**
@@ -159,10 +217,38 @@ router.get("/students", async (_req, res) => {
  *       200:
  *         description: studentsCount, coursesCount, averagePerformance
  */
+/**
+ * @swagger
+ * /api/admin/courses/pending:
+ *   get:
+ *     tags: [Admin]
+ *     summary: List pending courses for approval
+ *     responses:
+ *       200:
+ *         description: List of pending courses
+ */
+router.get("/courses/pending", async (_req, res) => {
+  const courses = await prisma.course.findMany({
+    where: { status: "PENDING" },
+    include: { teacher: true }
+  });
+  res.json(courses);
+});
+
 router.get("/analytics", async (_req, res) => {
-  const [studentsCount, coursesCount, submissions] = await Promise.all([
+  const [
+    studentsCount,
+    teachersCount,
+    coursesCount,
+    pendingCoursesCount,
+    enrollmentsCount,
+    submissions
+  ] = await Promise.all([
     prisma.user.count({ where: { role: Role.STUDENT } }),
+    prisma.user.count({ where: { role: Role.TEACHER } }),
     prisma.course.count(),
+    prisma.course.count({ where: { status: "PENDING" } }),
+    prisma.enrollment.count(),
     prisma.submission.findMany({
       include: {
         quiz: {
@@ -177,7 +263,7 @@ router.get("/analytics", async (_req, res) => {
 
   for (const sub of submissions) {
     const questionCount = sub.quiz.questions.length || 1;
-    const percentage = (sub.score / questionCount) * 100;
+    const percentage = (questionCount ? (sub.score / questionCount) * 100 : 0);
     totalPercentage += percentage;
     submissionCount += 1;
   }
@@ -187,7 +273,10 @@ router.get("/analytics", async (_req, res) => {
 
   res.json({
     studentsCount,
+    teachersCount,
     coursesCount,
+    pendingCoursesCount,
+    enrollmentsCount,
     averagePerformance
   });
 });

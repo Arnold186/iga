@@ -6,6 +6,11 @@ import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { PasswordInput } from "../../components/PasswordInput";
 import { toast } from "react-toastify";
+import { AuthLayout } from "../../layouts/AuthLayout";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
+import { Separator } from "../../components/ui/separator";
 
 const schema = z.object({
   email: z.string().email(),
@@ -35,42 +40,50 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="auth-layout">
-      <div className="auth-card">
-        <div className="brand">
-          <img className="brand-logo" src="/IGA.png" alt="IGA" />
-          <h1 className="brand-text">IGA</h1>
+    <AuthLayout
+      title="Welcome back"
+      subtitle="Sign in to your IGA account."
+      footer={
+        <div className="flex items-center justify-between">
+          <Link className="text-primary hover:underline" to="/forgot-password">
+            Forgot password?
+          </Link>
+          <Link className="text-primary hover:underline" to="/register">
+            Create an account
+          </Link>
         </div>
-        <h2 className="subtitle">Login</h2>
-        <form onSubmit={handleSubmit(onSubmit)} className="form">
-          <div className="field">
-            <label className="label">Email</label>
-            <input
-              type="email"
-              className="input"
-              {...register("email")}
-            />
-            {formState.errors.email && (
-              <span className="error">{formState.errors.email.message}</span>
-            )}
-          </div>
-          <PasswordInput
-            label="Password"
-            {...register("password")}
-          />
-          {formState.errors.password && (
-            <span className="error">{formState.errors.password.message}</span>
+      }
+    >
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <div className="space-y-2">
+          <Label>Email</Label>
+          <Input type="email" placeholder="you@example.com" {...register("email")} />
+          {formState.errors.email && (
+            <div className="text-xs text-red-600">{formState.errors.email.message}</div>
           )}
-          <button className="btn primary" type="submit" disabled={formState.isSubmitting}>
-            {formState.isSubmitting ? "Logging in..." : "Login"}
-          </button>
-        </form>
-        <div className="auth-links">
-          <Link to="/forgot-password">Forgot password?</Link>
-          <Link to="/register">Create an account</Link>
         </div>
-      </div>
-    </div>
+
+        <PasswordInput label="Password" placeholder="Your password" {...register("password")} />
+        {formState.errors.password && (
+          <div className="text-xs text-red-600">{formState.errors.password.message}</div>
+        )}
+
+        <Button className="w-full" type="submit" disabled={formState.isSubmitting}>
+          {formState.isSubmitting ? "Signing in…" : "Sign in"}
+        </Button>
+
+        <div className="relative py-2">
+          <Separator />
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white px-2 text-xs text-muted-foreground">
+            Secure access
+          </div>
+        </div>
+
+        <div className="text-xs text-muted-foreground">
+          By signing in, you agree to your institution’s acceptable use policy.
+        </div>
+      </form>
+    </AuthLayout>
   );
 };
 

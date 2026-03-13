@@ -2,10 +2,14 @@ import React from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import { PasswordInput } from "../../components/PasswordInput";
 import { toast } from "react-toastify";
+import { api } from "../../services/api";
+import { AuthLayout } from "../../layouts/AuthLayout";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 
 const schema = z.object({
   firstName: z.string().min(1),
@@ -25,7 +29,7 @@ export const RegisterPage: React.FC = () => {
 
   const onSubmit = async (data: FormValues) => {
     try {
-      await axios.post("/api/auth/register", data);
+      await api.post("/api/auth/register", data);
       toast.success("Registered. Check email for OTP.");
       navigate("/verify-otp?email=" + encodeURIComponent(data.email));
     } catch (err: any) {
@@ -34,49 +38,54 @@ export const RegisterPage: React.FC = () => {
   };
 
   return (
-    <div className="auth-layout">
-      <div className="auth-card">
-        <div className="brand">
-          <img className="brand-logo" src="/IGA.png" alt="IGA" />
-          <h1 className="brand-text">IGA</h1>
-        </div>
-        <h2 className="subtitle">Create Account</h2>
-        <form onSubmit={handleSubmit(onSubmit)} className="form">
-          <div className="field">
-            <label className="label">First name</label>
-            <input className="input" {...register("firstName")} />
-            {formState.errors.firstName && (
-              <span className="error">{formState.errors.firstName.message}</span>
-            )}
-          </div>
-          <div className="field">
-            <label className="label">Last name</label>
-            <input className="input" {...register("lastName")} />
-            {formState.errors.lastName && (
-              <span className="error">{formState.errors.lastName.message}</span>
-            )}
-          </div>
-          <div className="field">
-            <label className="label">Email</label>
-            <input type="email" className="input" {...register("email")} />
-            {formState.errors.email && (
-              <span className="error">{formState.errors.email.message}</span>
-            )}
-          </div>
-          <PasswordInput label="Password" {...register("password")} />
-          {formState.errors.password && (
-            <span className="error">{formState.errors.password.message}</span>
-          )}
-          <button className="btn primary" type="submit" disabled={formState.isSubmitting}>
-            {formState.isSubmitting ? "Creating..." : "Create account"}
-          </button>
-        </form>
-        <div className="auth-links">
+    <AuthLayout
+      title="Create your account"
+      subtitle="Register as a student. Teachers are created by admins."
+      footer={
+        <div className="flex items-center justify-between">
           <span>Already have an account?</span>
-          <Link to="/login">Login</Link>
+          <Link className="text-primary hover:underline" to="/login">
+            Sign in
+          </Link>
         </div>
-      </div>
-    </div>
+      }
+    >
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-2">
+            <Label>First name</Label>
+            <Input placeholder="John" {...register("firstName")} />
+            {formState.errors.firstName && (
+              <div className="text-xs text-red-600">{formState.errors.firstName.message}</div>
+            )}
+          </div>
+          <div className="space-y-2">
+            <Label>Last name</Label>
+            <Input placeholder="Doe" {...register("lastName")} />
+            {formState.errors.lastName && (
+              <div className="text-xs text-red-600">{formState.errors.lastName.message}</div>
+            )}
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <Label>Email</Label>
+          <Input type="email" placeholder="you@example.com" {...register("email")} />
+          {formState.errors.email && (
+            <div className="text-xs text-red-600">{formState.errors.email.message}</div>
+          )}
+        </div>
+
+        <PasswordInput label="Password" placeholder="Create a strong password" {...register("password")} />
+        {formState.errors.password && (
+          <div className="text-xs text-red-600">{formState.errors.password.message}</div>
+        )}
+
+        <Button className="w-full" type="submit" disabled={formState.isSubmitting}>
+          {formState.isSubmitting ? "Creating…" : "Create account"}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 };
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { io, Socket } from "socket.io-client";
-import axios from "axios";
 import { useAuth } from "../context/AuthContext";
+import { api } from "../services/api";
 
 interface Message {
   id: string;
@@ -26,12 +26,12 @@ export const ChatPanel: React.FC = () => {
   useEffect(() => {
     if (!token) return;
 
-    axios
+    api
       .get<Message[]>("/api/chat/group")
       .then((res) => setGroupMessages(res.data))
       .catch(() => {});
 
-    socket = io("http://localhost:4010", {
+    socket = io(import.meta.env.VITE_SOCKET_URL || "http://localhost:4010", {
       auth: { token }
     });
 
@@ -57,7 +57,7 @@ export const ChatPanel: React.FC = () => {
 
   const loadDm = async () => {
     if (!dmUserId.trim()) return;
-    const res = await axios.get<Message[]>(`/api/chat/private/${dmUserId.trim()}`);
+    const res = await api.get<Message[]>(`/api/chat/private/${dmUserId.trim()}`);
     setDmMessages(res.data);
   };
 

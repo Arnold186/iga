@@ -19,11 +19,15 @@ interface User {
   email: string;
   role: string;
   profileImage?: string | null;
+  isActive?: boolean;
 }
 
 interface Analytics {
   studentsCount: number;
+  teachersCount?: number;
   coursesCount: number;
+  pendingCoursesCount?: number;
+  enrollmentsCount?: number;
   averagePerformance: number;
 }
 
@@ -38,7 +42,7 @@ interface Assignment {
 }
 
 export const AdminDashboard: React.FC = () => {
-  const [courses, setCourses] = useState<Course[]>([]);
+  const [pendingCourses, setPendingCourses] = useState<Course[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -50,13 +54,13 @@ export const AdminDashboard: React.FC = () => {
   });
 
   const load = async () => {
-    const [coursesRes, usersRes, analyticsRes, assignmentsRes] = await Promise.all([
-      axios.get<Course[]>("/api/courses"),
+    const [pendingRes, usersRes, analyticsRes, assignmentsRes] = await Promise.all([
+      axios.get<Course[]>("/api/admin/courses/pending").catch(() => ({ data: [] })),
       axios.get<User[]>("/api/admin/users"),
       axios.get<Analytics>("/api/admin/analytics"),
       axios.get<Assignment[]>("/api/admin/assignments")
     ]);
-    setCourses(coursesRes.data);
+    setPendingCourses(pendingRes.data);
     setUsers(usersRes.data);
     setAnalytics(analyticsRes.data);
     setAssignments(assignmentsRes.data);
@@ -68,15 +72,27 @@ export const AdminDashboard: React.FC = () => {
 
   const updateCourseStatus = async (courseId: string, status: string) => {
     await axios.patch(`/api/courses/${courseId}/status`, { status });
+    toast.success(`Course ${status.toLowerCase()}`);
     load().catch(() => {});
   };
 
-  const pendingCourses = courses.filter((c) => c.status === "PENDING");
+  const updateUserStatus = async (userId: string, isActive: boolean) => {
+    try {
+      await axios.patch(`/api/admin/users/${userId}/status`, { isActive });
+      toast.success(isActive ? "User activated" : "User deactivated");
+      setUsers((prev) =>
+        prev.map((u) => (u.id === userId ? { ...u, isActive } : u))
+      );
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to update");
+    }
+  };
+
   const pendingAssignments = assignments.filter((a) => a.status === "PENDING");
 
   const registerTeacher = async () => {
     try {
-      await axios.post("/api/admin/teachers", teacherForm);
+      await axios.post("/api/admin/register-teacher", teacherForm);
       toast.success("Teacher created");
       setTeacherForm({ firstName: "", lastName: "", email: "", password: "" });
       load().catch(() => {});
@@ -87,11 +103,13 @@ export const AdminDashboard: React.FC = () => {
 
   const approveAssignment = async (id: string) => {
     await axios.patch(`/api/admin/assignments/${id}/approve`);
+    toast.success("Assignment approved");
     load().catch(() => {});
   };
 
   const rejectAssignment = async (id: string) => {
     await axios.patch(`/api/admin/assignments/${id}/reject`);
+    toast.success("Assignment rejected");
     load().catch(() => {});
   };
 
@@ -103,6 +121,7 @@ export const AdminDashboard: React.FC = () => {
 
           <div className="card">
             <h2 className="card-title">Pending Courses</h2>
+            <p className="card-subtitle">Approve or reject teacher-submitted courses.</p>
             <div className="list">
               {pendingCourses.map((c) => (
                 <div key={c.id} className="list-item">
@@ -132,6 +151,7 @@ export const AdminDashboard: React.FC = () => {
 
           <div className="card" style={{ marginTop: "1.2rem" }}>
             <h2 className="card-title">Register Teacher</h2>
+            <p className="card-subtitle">Create a new teacher account.</p>
             <div className="form">
               <div style={{ display: "flex", gap: "0.75rem" }}>
                 <input
@@ -150,6 +170,7 @@ export const AdminDashboard: React.FC = () => {
               <input
                 className="input"
                 placeholder="Email"
+                type="email"
                 value={teacherForm.email}
                 onChange={(e) => setTeacherForm((p) => ({ ...p, email: e.target.value }))}
               />
@@ -168,6 +189,7 @@ export const AdminDashboard: React.FC = () => {
 
           <div className="card" style={{ marginTop: "1.2rem" }}>
             <h2 className="card-title">Pending Assignments</h2>
+            <p className="card-subtitle">Approve assignments for students.</p>
             <div className="list">
               {pendingAssignments.map((a) => (
                 <div key={a.id} className="list-item">
@@ -192,7 +214,8 @@ export const AdminDashboard: React.FC = () => {
           </div>
 
           <div className="card" style={{ marginTop: "1.2rem" }}>
-            <h2 className="card-title">Users</h2>
+            <h2 className="card-title">User Management</h2>
+            <p className="card-subtitle">Activate or deactivate user accounts.</p>
             <div className="list">
               {users.map((u) => (
                 <div key={u.id} className="list-item">
@@ -202,7 +225,22 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                     <small>{u.email}</small>
                   </div>
-                  <span className="badge info">{u.role}</span>
+                  <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+                    <span className="badge info">{u.role}</span>
+                    <span
+                      className={u.isActive !== false ? "badge success" : "badge warning"}
+                      style={{ fontSize: "0.7rem" }}
+                    >
+                      {u.isActive !== false ? "Active" : "Inactive"}
+                    </span>
+                    <button
+                      className="btn outline"
+                      style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem" }}
+                      onClick={() => updateUserStatus(u.id, u.isActive === false)}
+                    >
+                      {u.isActive === false ? "Activate" : "Deactivate"}
+                    </button>
+                  </div>
                 </div>
               ))}
               {users.length === 0 && <p>No users yet.</p>}
@@ -219,8 +257,22 @@ export const AdminDashboard: React.FC = () => {
                     <div className="stat-value">{analytics.studentsCount}</div>
                   </div>
                   <div className="stat-card">
+                    <div className="stat-label">Teachers</div>
+                    <div className="stat-value">{analytics.teachersCount ?? 0}</div>
+                  </div>
+                  <div className="stat-card">
                     <div className="stat-label">Courses</div>
                     <div className="stat-value">{analytics.coursesCount}</div>
+                  </div>
+                </div>
+                <div className="stats-row">
+                  <div className="stat-card">
+                    <div className="stat-label">Pending Courses</div>
+                    <div className="stat-value">{analytics.pendingCoursesCount ?? 0}</div>
+                  </div>
+                  <div className="stat-card">
+                    <div className="stat-label">Enrollments</div>
+                    <div className="stat-value">{analytics.enrollmentsCount ?? 0}</div>
                   </div>
                 </div>
                 <div className="stats-row">
@@ -239,4 +291,3 @@ export const AdminDashboard: React.FC = () => {
     </DashboardShell>
   );
 };
-

@@ -5,6 +5,8 @@ import { prisma } from "../../prisma/client";
 import { z } from "zod";
 import { validateBody } from "../../middleware/validate";
 import { upload, uploadToCloudinary } from "../../utils/cloudinary";
+import { createNotification } from "../../utils/notify";
+import { logActivity } from "../../utils/activityLog";
 
 const router = Router();
 
@@ -68,6 +70,8 @@ router.post(
         status: CourseStatus.PENDING
       }
     });
+
+    await logActivity(req.user!.id, "Course created");
 
     res.status(201).json(course);
   }
@@ -306,12 +310,42 @@ router.post(
  *       404:
  *         description: Course not found
  */
+/**
+ * @swagger
+ * /api/courses/{id}:
+ *   put:
+ *     tags: [Courses]
+ *     summary: Update course (Teacher, own courses only)
+ */
+router.put(
+  "/:id",
+  authenticate,
+  requireRole([Role.TEACHER]),
+  validateBody(createCourseSchema.partial()),
+  async (req, res) => {
+    const { id } = req.params;
+    const { title, description } = req.body as { title?: string; description?: string };
+
+    const course = await prisma.course.findUnique({ where: { id } });
+    if (!course) return res.status(404).json({ message: "Course not found" });
+    if (course.teacherId !== req.user!.id) {
+      return res.status(403).json({ message: "You can only update your own courses" });
+    }
+
+    const updated = await prisma.course.update({
+      where: { id },
+      data: { ...(title ? { title } : {}), ...(description ? { description } : {}) }
+    });
+    res.json(updated);
+  }
+);
+
 router.get("/:id", authenticate, async (req, res) => {
   const { id } = req.params;
 
   const course = await prisma.course.findUnique({
     where: { id },
-    include: { teacher: true, documents: true }
+    include: { teacher: true, documents: true, modules: true }
   });
 
   if (!course) {
@@ -345,6 +379,79 @@ router.get("/:id", authenticate, async (req, res) => {
  *       200:
  *         description: Course updated
  */
+/**
+ * @swagger
+ * /api/courses/{id}/students:
+ *   get:
+ *     tags: [Courses]
+ *     summary: List enrolled students (Teacher, own courses only)
+ */
+router.get(
+  "/:id/students",
+  authenticate,
+  requireRole([Role.TEACHER]),
+  async (req, res) => {
+    const { id } = req.params;
+    const course = await prisma.course.findUnique({ where: { id } });
+    if (!course) return res.status(404).json({ message: "Course not found" });
+    if (course.teacherId !== req.user!.id) {
+      return res.status(403).json({ message: "You can only view students for your own courses" });
+    }
+    const enrollments = await prisma.enrollment.findMany({
+      where: { courseId: id },
+      include: { student: { select: { id: true, firstName: true, lastName: true, email: true } } }
+    });
+    res.json(enrollments);
+  }
+);
+
+/**
+ * @swagger
+ * /api/courses/{id}/rate:
+ *   post:
+ *     tags: [Courses]
+ *     summary: Rate course (Student)
+ */
+router.post(
+  "/:id/rate",
+  authenticate,
+  requireRole([Role.STUDENT]),
+  validateBody(z.object({ rating: z.number().min(1).max(5), review: z.string().optional() })),
+  async (req, res) => {
+    const { id } = req.params;
+    const { rating, review } = req.body as { rating: number; review?: string };
+    const course = await prisma.course.findFirst({ where: { id, status: CourseStatus.APPROVED } });
+    if (!course) return res.status(404).json({ message: "Course not found" });
+    const enrollment = await prisma.enrollment.findFirst({
+      where: { courseId: id, studentId: req.user!.id }
+    });
+    if (!enrollment) return res.status(403).json({ message: "You must be enrolled to rate" });
+
+    const ratingRecord = await prisma.courseRating.upsert({
+      where: { courseId_studentId: { courseId: id, studentId: req.user!.id } },
+      create: { courseId: id, studentId: req.user!.id, rating, review: review ?? null },
+      update: { rating, review: review ?? undefined }
+    });
+    res.status(201).json(ratingRecord);
+  }
+);
+
+/**
+ * @swagger
+ * /api/courses/{id}/reviews:
+ *   get:
+ *     tags: [Courses]
+ *     summary: Get course reviews/ratings
+ */
+router.get("/:id/reviews", authenticate, async (req, res) => {
+  const { id } = req.params;
+  const ratings = await prisma.courseRating.findMany({
+    where: { courseId: id },
+    include: { student: { select: { firstName: true, lastName: true } } }
+  });
+  res.json(ratings);
+});
+
 router.patch(
   "/:id/status",
   authenticate,
@@ -358,10 +465,18 @@ router.patch(
     const { id } = req.params;
     const { status } = req.body as { status: CourseStatus };
 
+    const existing = await prisma.course.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ message: "Course not found" });
+
     const course = await prisma.course.update({
       where: { id },
       data: { status }
     });
+
+    if (status === "APPROVED") {
+      await createNotification(existing.teacherId, "Your course has been approved.");
+    }
+    await logActivity(req.user!.id, `Course ${id} status updated to ${status}`);
 
     res.json(course);
   }

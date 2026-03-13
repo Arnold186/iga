@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import axios from "axios";
 import { toast } from "react-toastify";
+import { api } from "../services/api";
+import { Button } from "./ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
+import { Input } from "./ui/input";
+import { Label } from "./ui/label";
 
 type Role = "STUDENT" | "TEACHER" | "ADMIN";
 
@@ -28,7 +32,7 @@ export const ProfileCard: React.FC = () => {
   }, [me?.firstName, me?.lastName]);
 
   const load = async () => {
-    const res = await axios.get<MeResponse>("/api/users/me");
+    const res = await api.get<MeResponse>("/api/users/me");
     setMe(res.data);
     setFirstName(res.data.firstName || "");
     setLastName(res.data.lastName || "");
@@ -41,7 +45,7 @@ export const ProfileCard: React.FC = () => {
   const save = async () => {
     try {
       setSaving(true);
-      const res = await axios.put<MeResponse>("/api/users/profile", {
+      const res = await api.put<MeResponse>("/api/users/profile", {
         firstName,
         lastName
       });
@@ -59,7 +63,7 @@ export const ProfileCard: React.FC = () => {
       setUploading(true);
       const fd = new FormData();
       fd.append("file", file);
-      const res = await axios.post<{ profileImage: string; user: MeResponse }>(
+      const res = await api.post<{ profileImage: string; user: MeResponse }>(
         "/api/users/profile-picture",
         fd
       );
@@ -73,64 +77,71 @@ export const ProfileCard: React.FC = () => {
   };
 
   return (
-    <div className="card">
-      <h2 className="card-title">My Profile</h2>
-      {!me && <p>Loading profile...</p>}
-      {me && (
-        <div className="profile-row">
-          <div className="avatar">
-            {me.profileImage ? (
-              <img src={me.profileImage} alt="Profile" />
-            ) : (
-              <span>{initials}</span>
-            )}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div className="profile-meta">
-              <div className="profile-name">{me.name || `${me.firstName} ${me.lastName}`}</div>
-              <div className="profile-sub">{me.email}</div>
-              <div className="profile-sub">{me.role}</div>
+    <Card className="bg-white/70 backdrop-blur">
+      <CardHeader>
+        <CardTitle>My profile</CardTitle>
+        <CardDescription>Quick edits</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!me ? (
+          <div className="text-sm text-muted-foreground">Loading profile…</div>
+        ) : (
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <div className="h-16 w-16 overflow-hidden rounded-full border bg-sky-50">
+              {me.profileImage ? (
+                <img src={me.profileImage} alt="Profile" className="h-full w-full object-cover" />
+              ) : (
+                <div className="grid h-full w-full place-items-center text-sm font-semibold text-sky-700">
+                  {initials}
+                </div>
+              )}
             </div>
-
-            <div className="form" style={{ marginTop: "0.75rem" }}>
-              <div style={{ display: "flex", gap: "0.75rem" }}>
-                <input
-                  className="input"
-                  placeholder="First name"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                />
-                <input
-                  className="input"
-                  placeholder="Last name"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                />
+            <div className="min-w-0 flex-1 space-y-4">
+              <div>
+                <div className="truncate font-medium">
+                  {me.name || `${me.firstName} ${me.lastName}`}
+                </div>
+                <div className="truncate text-sm text-muted-foreground">{me.email}</div>
+                <div className="mt-2 inline-flex rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700">
+                  {me.role}
+                </div>
               </div>
-              <div style={{ display: "flex", gap: "0.75rem", alignItems: "center" }}>
-                <button className="btn primary" onClick={save} disabled={saving}>
-                  {saving ? "Saving..." : "Save"}
-                </button>
-                <label className="btn outline" style={{ display: "inline-flex", gap: "0.5rem" }}>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>First name</Label>
+                  <Input value={firstName} onChange={(e) => setFirstName(e.target.value)} />
+                </div>
+                <div className="space-y-2">
+                  <Label>Last name</Label>
+                  <Input value={lastName} onChange={(e) => setLastName(e.target.value)} />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+                <label className="inline-flex cursor-pointer items-center justify-center rounded-md border bg-background px-4 py-2 text-sm font-medium hover:bg-accent">
                   <input
                     type="file"
                     accept="image/*"
-                    style={{ display: "none" }}
+                    className="hidden"
                     onChange={(e) => {
                       const f = e.target.files?.[0];
                       if (f) uploadPicture(f);
-                      e.target.value = "";
+                      e.currentTarget.value = "";
                     }}
                     disabled={uploading}
                   />
-                  {uploading ? "Uploading..." : "Change picture"}
+                  {uploading ? "Uploading…" : "Change picture"}
                 </label>
+                <Button onClick={save} disabled={saving}>
+                  {saving ? "Saving…" : "Save"}
+                </Button>
               </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </CardContent>
+    </Card>
   );
 };
 

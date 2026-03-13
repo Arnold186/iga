@@ -2,9 +2,13 @@ import React from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import axios from "axios";
 import { useLocation, useNavigate, Link } from "react-router-dom";
 import { toast } from "react-toastify";
+import { api } from "../../services/api";
+import { AuthLayout } from "../../layouts/AuthLayout";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 
 const schema = z.object({
   email: z.string().email(),
@@ -26,7 +30,7 @@ export const VerifyOtpPage: React.FC = () => {
 
   const onSubmit = async (data: FormValues) => {
     try {
-      await axios.post("/api/auth/verify-otp", data);
+      await api.post("/api/auth/verify-otp", data);
       toast.success("Email verified. You can login now.");
       navigate("/login");
     } catch (err: any) {
@@ -35,37 +39,40 @@ export const VerifyOtpPage: React.FC = () => {
   };
 
   return (
-    <div className="auth-layout">
-      <div className="auth-card">
-        <div className="brand">
-          <img className="brand-logo" src="/IGA.png" alt="IGA" />
-          <h1 className="brand-text">IGA</h1>
+    <AuthLayout
+      title="Verify your email"
+      subtitle="Enter the 6-digit code sent to your email."
+      footer={
+        <Link className="text-primary hover:underline" to="/login">
+          Back to login
+        </Link>
+      }
+    >
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <div className="space-y-2">
+          <Label>Email</Label>
+          <Input type="email" {...register("email")} />
+          {formState.errors.email && (
+            <div className="text-xs text-red-600">{formState.errors.email.message}</div>
+          )}
         </div>
-        <h2 className="subtitle">Verify Email</h2>
-        <form onSubmit={handleSubmit(onSubmit)} className="form">
-          <div className="field">
-            <label className="label">Email</label>
-            <input type="email" className="input" {...register("email")} />
-            {formState.errors.email && (
-              <span className="error">{formState.errors.email.message}</span>
-            )}
-          </div>
-          <div className="field">
-            <label className="label">6-digit OTP</label>
-            <input className="input" maxLength={6} {...register("otp")} />
-            {formState.errors.otp && (
-              <span className="error">{formState.errors.otp.message}</span>
-            )}
-          </div>
-          <button className="btn primary" type="submit" disabled={formState.isSubmitting}>
-            {formState.isSubmitting ? "Verifying..." : "Verify"}
-          </button>
-        </form>
-        <div className="auth-links">
-          <Link to="/login">Back to login</Link>
+        <div className="space-y-2">
+          <Label>6-digit OTP</Label>
+          <Input
+            inputMode="numeric"
+            placeholder="123456"
+            maxLength={6}
+            {...register("otp")}
+          />
+          {formState.errors.otp && (
+            <div className="text-xs text-red-600">{formState.errors.otp.message}</div>
+          )}
         </div>
-      </div>
-    </div>
+        <Button className="w-full" type="submit" disabled={formState.isSubmitting}>
+          {formState.isSubmitting ? "Verifying…" : "Verify"}
+        </Button>
+      </form>
+    </AuthLayout>
   );
 };
 

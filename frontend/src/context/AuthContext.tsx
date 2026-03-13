@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import axios from "axios";
+import { api } from "../services/api";
 
 type Role = "STUDENT" | "TEACHER" | "ADMIN";
 
@@ -33,20 +33,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  useEffect(() => {
-    axios.defaults.baseURL = "http://localhost:4010";
-  }, []);
-
-  useEffect(() => {
-    if (token) {
-      axios.defaults.headers.common.Authorization = `Bearer ${token}`;
-    } else {
-      delete axios.defaults.headers.common.Authorization;
-    }
-  }, [token]);
-
   const login = async ({ email, password }: { email: string; password: string }) => {
-    const res = await axios.post("/api/auth/login", { email, password });
+    const res = await api.post("/api/auth/login", { email, password });
     const { token: jwt, user } = res.data;
     setToken(jwt);
     setUser(user);
