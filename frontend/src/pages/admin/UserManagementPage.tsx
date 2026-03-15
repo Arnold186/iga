@@ -4,6 +4,14 @@ import { api } from "../../services/api";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../../components/ui/table";
 
 type UserRow = {
   id: string;
@@ -73,63 +81,61 @@ export const UserManagementPage: React.FC = () => {
           <CardDescription>{loading ? "Loading…" : `${filtered.length} users`}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase text-muted-foreground">
-                <tr className="border-b">
-                  <th className="py-3 pr-3">Name</th>
-                  <th className="py-3 pr-3">Email</th>
-                  <th className="py-3 pr-3">Role</th>
-                  <th className="py-3 pr-3">Status</th>
-                  <th className="py-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((u) => (
-                  <tr key={u.id} className="border-b last:border-b-0">
-                    <td className="py-3 pr-3">
-                      <div className="font-medium">{u.firstName} {u.lastName}</div>
-                      <div className="text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</div>
-                    </td>
-                    <td className="py-3 pr-3">{u.email}</td>
-                    <td className="py-3 pr-3">
-                      <span className="rounded-full bg-sky-50 px-2 py-1 text-xs font-medium text-sky-700">
-                        {u.role}
-                      </span>
-                    </td>
-                    <td className="py-3 pr-3">
-                      <span
-                        className={
-                          u.isActive
-                            ? "rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700"
-                            : "rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700"
-                        }
-                      >
-                        {u.isActive ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                    <td className="py-3 text-right">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={savingId === u.id}
-                        onClick={() => setActive(u.id, !u.isActive)}
-                      >
-                        {savingId === u.id ? "Saving…" : u.isActive ? "Deactivate" : "Activate"}
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-                {!loading && filtered.length === 0 && (
-                  <tr>
-                    <td className="py-6 text-sm text-muted-foreground" colSpan={5}>
-                      No users found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Action</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((u) => (
+                <TableRow key={u.id}>
+                  <TableCell>
+                    <div className="font-medium">{u.firstName} {u.lastName}</div>
+                    <div className="text-xs text-muted-foreground">{new Date(u.createdAt).toLocaleDateString()}</div>
+                  </TableCell>
+                  <TableCell>{u.email}</TableCell>
+                  <TableCell>
+                    <span className="rounded-full bg-sky-50 px-2 py-1 text-xs font-medium text-sky-700">
+                      {u.role}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <span
+                      className={
+                        u.isActive
+                          ? "rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700"
+                          : "rounded-full bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700"
+                      }
+                    >
+                      {u.isActive ? "Active" : "Inactive"}
+                    </span>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={savingId === u.id}
+                      onClick={() => setActive(u.id, !u.isActive)}
+                    >
+                      {savingId === u.id ? "Saving…" : u.isActive ? "Deactivate" : "Activate"}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {!loading && filtered.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-24 text-center">
+                    No users found.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

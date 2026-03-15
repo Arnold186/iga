@@ -28,6 +28,11 @@ import { StudentListPage } from "./pages/teacher/StudentListPage";
 import { CourseCatalogPage } from "./pages/student/CourseCatalogPage";
 import { CourseDetailPage } from "./pages/student/CourseDetailPage";
 
+import { StudentDashboardPage } from "./pages/student/StudentDashboardPage";
+import { StudentMyCoursesPage } from "./pages/student/StudentMyCoursesPage";
+import { StudentAssignmentsPage } from "./pages/student/StudentAssignmentsPage";
+import { StudentQuizzesPage } from "./pages/student/StudentQuizzesPage";
+
 const AppRoutes: React.FC = () => {
   const { user } = useAuth();
 
@@ -57,7 +62,9 @@ const AppRoutes: React.FC = () => {
         <Route path="/teacher" element={<TeacherLayout />}>
           <Route index element={<TeacherDashboardPage />} />
           <Route path="courses" element={<TeacherCoursesPage />} />
+          <Route path="courses/new" element={<TeacherCoursesPage />} />
           <Route path="assignments" element={<AssignmentsPage />} />
+          <Route path="quizzes" element={<AssignmentsPage />} />
           <Route path="students" element={<StudentListPage />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="profile" element={<ProfilePage />} />
@@ -66,9 +73,12 @@ const AppRoutes: React.FC = () => {
 
       <Route element={<RequireRole roles={["STUDENT"]} />}>
         <Route path="/student" element={<StudentLayout />}>
-          <Route index element={<CourseCatalogPage />} />
+          <Route index element={<StudentDashboardPage />} />
           <Route path="courses" element={<CourseCatalogPage />} />
           <Route path="courses/:id" element={<CourseDetailPage />} />
+          <Route path="my-courses" element={<StudentMyCoursesPage />} />
+          <Route path="assignments" element={<StudentAssignmentsPage />} />
+          <Route path="quizzes" element={<StudentQuizzesPage />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="profile" element={<ProfilePage />} />
         </Route>

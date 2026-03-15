@@ -4,6 +4,14 @@ import { api } from "../../services/api";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../../components/ui/table";
 
 type StudentRow = {
   id: string;
@@ -59,33 +67,31 @@ export const StudentManagementPage: React.FC = () => {
           <CardDescription>{loading ? "Loading…" : `${filtered.length} students`}</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs uppercase text-muted-foreground">
-                <tr className="border-b">
-                  <th className="py-3 pr-3">Name</th>
-                  <th className="py-3 pr-3">Email</th>
-                  <th className="py-3">Joined</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((s) => (
-                  <tr key={s.id} className="border-b last:border-b-0">
-                    <td className="py-3 pr-3 font-medium">{s.firstName} {s.lastName}</td>
-                    <td className="py-3 pr-3">{s.email}</td>
-                    <td className="py-3">{new Date(s.createdAt).toLocaleDateString()}</td>
-                  </tr>
-                ))}
-                {!loading && filtered.length === 0 && (
-                  <tr>
-                    <td className="py-6 text-sm text-muted-foreground" colSpan={3}>
-                      No students found.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Email</TableHead>
+                <TableHead>Joined</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.map((s) => (
+                <TableRow key={s.id}>
+                  <TableCell className="font-medium">{s.firstName} {s.lastName}</TableCell>
+                  <TableCell>{s.email}</TableCell>
+                  <TableCell>{new Date(s.createdAt).toLocaleDateString()}</TableCell>
+                </TableRow>
+              ))}
+              {!loading && filtered.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={3} className="h-24 text-center">
+                    No students found.
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
