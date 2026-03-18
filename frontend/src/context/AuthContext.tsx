@@ -20,18 +20,22 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-
-  useEffect(() => {
+function readStoredAuth(): { token: string | null; user: User | null } {
+  try {
     const storedToken = localStorage.getItem("iga_token");
     const storedUser = localStorage.getItem("iga_user");
     if (storedToken && storedUser) {
-      setToken(storedToken);
-      setUser(JSON.parse(storedUser));
+      return { token: storedToken, user: JSON.parse(storedUser) as User };
     }
-  }, []);
+  } catch {
+    // invalid JSON or missing keys
+  }
+  return { token: null, user: null };
+}
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(() => readStoredAuth().user);
+  const [token, setToken] = useState<string | null>(() => readStoredAuth().token);
 
   const login = async ({ email, password }: { email: string; password: string }) => {
     const res = await api.post("/api/auth/login", { email, password });

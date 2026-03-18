@@ -4,6 +4,7 @@ import {
   registerUser,
   requestPasswordReset,
   resetPassword,
+  resendRegistrationOtp,
   verifyOtp
 } from "./auth.service";
 import { Role } from "@prisma/client";
@@ -35,6 +36,12 @@ export async function verifyOtpHandler(req: Request, res: Response) {
   res.json({ message: "Email verified successfully. You can now login." });
 }
 
+export async function resendOtpHandler(req: Request, res: Response) {
+  const { email } = req.body as { email: string };
+  await resendRegistrationOtp(email);
+  res.json({ message: "If an account exists for this email, a new OTP has been sent." });
+}
+
 export async function loginHandler(req: Request, res: Response) {
   const { email, password } = req.body as { email: string; password: string };
   const result = await login(email, password);
@@ -46,13 +53,13 @@ export async function forgotPasswordHandler(req: Request, res: Response) {
   await requestPasswordReset(email);
   res.json({
     message:
-      "If an account exists for this email, a password reset link has been sent."
+      "If an account exists for this email, an OTP has been sent."
   });
 }
 
 export async function resetPasswordHandler(req: Request, res: Response) {
-  const { token, password } = req.body as { token: string; password: string };
-  await resetPassword(token, password);
+  const { email, otp, password } = req.body as { email: string; otp: string; password: string };
+  await resetPassword(email, otp, password);
   res.json({ message: "Password reset successfully." });
 }
 

@@ -73,7 +73,7 @@ export const StudentDashboardPage: React.FC = () => {
                     <p className="truncate text-xs text-muted-foreground">{c.description}</p>
                   </div>
                   <Button asChild size="sm" variant="outline" className="ml-4 shrink-0">
-                    <Link to={`/student/courses/${c.id}`}>Resume</Link>
+                    <Link to={`/dashboard/courses/${c.id}`}>Resume</Link>
                   </Button>
                 </div>
               ))}

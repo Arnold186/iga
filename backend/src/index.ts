@@ -72,6 +72,48 @@ io.on("connection", (socket) => {
 
   socket.on("direct_message", async (payload: { receiverId: string; content: string }) => {
     if (!payload.content?.trim()) return;
+
+    if (!payload.receiverId || payload.receiverId === user.id) {
+      return;
+    }
+
+    const receiver = await prisma.user.findUnique({
+      where: { id: payload.receiverId },
+      select: {
+        id: true,
+        role: true,
+        isActive: true
+      }
+    });
+
+    if (!receiver || !receiver.isActive) {
+      return;
+    }
+
+    // Enforce role-based DM rules:
+    // - Private chats are only meaningful between TEACHER-STUDENT and TEACHER-ADMIN,
+    //   but students may also chat with classmates.
+    // - ADMIN can message STUDENT or TEACHER.
+    // - STUDENT must not be able to INITIATE a new DM to ADMIN,
+    //   but can reply if the admin has already messaged them.
+
+    const senderRole = user.role;
+    const receiverRole = receiver.role;
+
+    if (senderRole === Role.STUDENT && receiverRole === Role.ADMIN) {
+      // Allow only if there is already at least one message from this admin to this student
+      const existingFromAdmin = await prisma.message.findFirst({
+        where: {
+          senderId: receiver.id,
+          receiverId: user.id
+        }
+      });
+
+      if (!existingFromAdmin) {
+        return;
+      }
+    }
+
     const msg = await prisma.message.create({
       data: {
         senderId: user.id,

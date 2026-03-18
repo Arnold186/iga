@@ -18,6 +18,13 @@ interface Message {
   senderRole?: string;
 }
 
+interface OrgUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
 let socket: Socket | null = null;
 
 export const ChatPanel: React.FC = () => {
@@ -25,12 +32,38 @@ export const ChatPanel: React.FC = () => {
   
   const [activeTab, setActiveTab] = useState<"group" | "dm">("group");
   const [dmUserId, setDmUserId] = useState("");
+  const [dmUserName, setDmUserName] = useState("");
+  const [orgUsers, setOrgUsers] = useState<OrgUser[]>([]);
+  const [dmSearchQuery, setDmSearchQuery] = useState("");
+  const [dmSearchDebounced, setDmSearchDebounced] = useState("");
   
   const [groupMessages, setGroupMessages] = useState<Message[]>([]);
   const [dmMessages, setDmMessages] = useState<Message[]>([]);
+  const [unreadGroup, setUnreadGroup] = useState(false);
+  const [unreadDmUserIds, setUnreadDmUserIds] = useState<Record<string, boolean>>({});
   
   const [inputVal, setInputVal] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const activeTabRef = useRef(activeTab);
+  const dmUserIdRef = useRef(dmUserId);
+  activeTabRef.current = activeTab;
+  dmUserIdRef.current = dmUserId;
+
+  // Debounce DM search
+  useEffect(() => {
+    const t = setTimeout(() => setDmSearchDebounced(dmSearchQuery), 300);
+    return () => clearTimeout(t);
+  }, [dmSearchQuery]);
+
+  // Fetch organisation users for DMs (with optional search)
+  useEffect(() => {
+    if (!token) return;
+    const q = dmSearchDebounced.trim();
+    api
+      .get<OrgUser[]>("/api/users/list", { params: q ? { search: q } : {} })
+      .then((res) => setOrgUsers(res.data))
+      .catch(() => setOrgUsers([]));
+  }, [token, dmSearchDebounced]);
 
   useEffect(() => {
     if (!token) return;
@@ -46,12 +79,28 @@ export const ChatPanel: React.FC = () => {
 
     socket.on("receive_message", (msg: Message) => {
       setGroupMessages((prev) => [...prev, msg]);
+      const viewingGroup = activeTabRef.current === "group";
+      setUnreadGroup((prev) => prev || !viewingGroup);
       setTimeout(() => scrollToBottom(), 100);
     });
 
     socket.on("receive_direct_message", (msg: Message) => {
-      setDmMessages((prev) => [...prev, msg]);
-      setTimeout(() => scrollToBottom(), 100);
+      if (!user) return;
+
+      const fromOther = msg.senderId !== user.id;
+      const otherPartyId = msg.senderId === user.id ? msg.receiverId : msg.senderId;
+
+      const viewingThisChat =
+        activeTabRef.current === "dm" && !!otherPartyId && dmUserIdRef.current === otherPartyId;
+
+      if (fromOther && otherPartyId && !viewingThisChat) {
+        setUnreadDmUserIds((prev) => ({ ...prev, [otherPartyId]: true }));
+      }
+
+      if (viewingThisChat) {
+        setDmMessages((prev) => [...prev, msg]);
+        setTimeout(() => scrollToBottom(), 100);
+      }
     });
 
     return () => {
@@ -71,6 +120,14 @@ export const ChatPanel: React.FC = () => {
     const res = await api.get<Message[]>(`/api/chat/private/${id.trim()}`);
     setDmMessages(res.data);
     setTimeout(() => scrollToBottom(), 100);
+  };
+
+  const openDmWithUser = (u: OrgUser) => {
+    setDmUserId(u.id);
+    setDmUserName(u.name);
+    setActiveTab("dm");
+    setUnreadDmUserIds((prev) => ({ ...prev, [u.id]: false }));
+    loadDm(u.id);
   };
 
   const sendMessage = () => {
@@ -108,11 +165,14 @@ export const ChatPanel: React.FC = () => {
                 Channels
               </h4>
               <button 
-                onClick={() => { setActiveTab("group"); setTimeout(() => scrollToBottom(), 100); }}
+                onClick={() => { setActiveTab("group"); setUnreadGroup(false); setTimeout(() => scrollToBottom(), 100); }}
                 className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium transition-colors ${activeTab === "group" ? "bg-blue-100/50 text-blue-700" : "hover:bg-slate-100 text-slate-700"}`}
               >
-                <Hash className="h-4 w-4" />
-                Global Chat
+                <Hash className="h-4 w-4 shrink-0" />
+                <span className="flex-1 truncate text-left">Community Chat</span>
+                {unreadGroup && (
+                  <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" title="New messages" />
+                )}
               </button>
             </div>
             
@@ -121,29 +181,36 @@ export const ChatPanel: React.FC = () => {
                 Direct Messages
               </h4>
               <div className="px-2 pb-2">
-                <Input 
-                  size={1}
-                  className="h-8 text-xs bg-white" 
-                  placeholder="Paste User ID..." 
-                  value={dmUserId}
-                  onChange={(e) => setDmUserId(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      setActiveTab("dm");
-                      loadDm(dmUserId);
-                    }
-                  }}
+                <Input
+                  className="h-8 text-xs bg-white"
+                  placeholder="Search by name or email..."
+                  value={dmSearchQuery}
+                  onChange={(e) => setDmSearchQuery(e.target.value)}
                 />
               </div>
-              {dmUserId && (
-                <button 
-                  onClick={() => { setActiveTab("dm"); loadDm(dmUserId); }}
-                  className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium transition-colors ${activeTab === "dm" ? "bg-blue-100/50 text-blue-700" : "hover:bg-slate-100 text-slate-700"}`}
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  <span className="truncate">{dmUserId}</span>
-                </button>
-              )}
+              <div className="space-y-0.5 px-1">
+                {orgUsers.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    onClick={() => openDmWithUser(u)}
+                    className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm font-medium transition-colors ${activeTab === "dm" && dmUserId === u.id ? "bg-blue-100/50 text-blue-700" : "hover:bg-slate-100 text-slate-700"}`}
+                  >
+                    <MessageSquare className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate" title={`${u.name} (${u.email})`}>
+                      {u.name}
+                    </span>
+                    {unreadDmUserIds[u.id] && (
+                      <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" title="New messages" />
+                    )}
+                  </button>
+                ))}
+                {orgUsers.length === 0 && (
+                  <p className="px-2 py-2 text-xs text-muted-foreground">
+                    {dmSearchDebounced ? "No people match your search." : "No other users in the organisation."}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </ScrollArea>
@@ -153,7 +220,7 @@ export const ChatPanel: React.FC = () => {
       <div className="flex flex-1 flex-col bg-white">
         <div className="flex h-14 items-center border-b px-6">
           <h3 className="font-semibold text-slate-800">
-            {activeTab === "group" ? "Global Chat" : `Direct Message: ${dmUserId || "New"}`}
+            {activeTab === "group" ? "Community Chat" : `Direct Message: ${dmUserName || "Select a person"}`}
           </h3>
         </div>
 
@@ -203,7 +270,7 @@ export const ChatPanel: React.FC = () => {
           <div className="flex items-center gap-2">
             <Input
               className="flex-1 bg-white"
-              placeholder={activeTab === "group" ? "Message Global Chat..." : "Send a direct message..."}
+              placeholder={activeTab === "group" ? "Message Community Chat..." : "Send a direct message..."}
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
               onKeyDown={(e) => {

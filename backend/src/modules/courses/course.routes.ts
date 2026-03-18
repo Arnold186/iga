@@ -1,4 +1,5 @@
 import { Router } from "express";
+import jwt from "jsonwebtoken";
 import { authenticate, requireRole } from "../../middleware/auth";
 import { Role, CourseStatus } from "@prisma/client";
 import { prisma } from "../../prisma/client";
@@ -6,9 +7,14 @@ import { z } from "zod";
 import { validateBody } from "../../middleware/validate";
 import { upload, uploadToCloudinary } from "../../utils/cloudinary";
 import { createNotification } from "../../utils/notify";
+import { sendEmail } from "../../utils/email";
 import { logActivity } from "../../utils/activityLog";
+import { env } from "../../config/env";
 
 const router = Router();
+
+/** Short-lived JWT for document view (so Office Online Viewer can fetch the file without auth). */
+const VIEW_TOKEN_EXPIRY = "5m";
 
 const ALLOWED_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp", "image/gif"];
 const ALLOWED_DOC_TYPES = [
@@ -23,6 +29,66 @@ const createCourseSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1)
 });
+
+/**
+ * GET /api/courses/documents/serve?token=JWT
+ * Public (no auth). Serves document for inline viewing when token is valid. Used by Office Online Viewer.
+ */
+router.get("/documents/serve", async (req, res) => {
+  const token = req.query.token as string;
+  if (!token) {
+    return res.status(400).json({ message: "Missing token" });
+  }
+  let payload: { documentId: string };
+  try {
+    payload = jwt.verify(token, env.jwtSecret) as { documentId: string };
+  } catch {
+    return res.status(401).json({ message: "Invalid or expired token" });
+  }
+  const document = await prisma.courseDocument.findUnique({
+    where: { id: payload.documentId }
+  });
+  if (!document) {
+    return res.status(404).json({ message: "Document not found" });
+  }
+  try {
+    const response = await fetch(document.url, { method: "GET" });
+    if (!response.ok) {
+      return res.status(502).json({ message: "Failed to fetch document" });
+    }
+    const buffer = await response.arrayBuffer();
+    res.setHeader("Content-Disposition", "inline");
+    const contentType = response.headers.get("content-type");
+    if (contentType) res.setHeader("Content-Type", contentType);
+    res.send(Buffer.from(buffer));
+  } catch {
+    return res.status(502).json({ message: "Failed to stream document" });
+  }
+});
+
+/**
+ * GET /api/courses/:id/documents/:documentId/view-token
+ * Returns a short-lived token to use with /api/courses/documents/serve for Office Online Viewer.
+ */
+router.get(
+  "/:id/documents/:documentId/view-token",
+  authenticate,
+  async (req, res) => {
+    const { id: courseId, documentId } = req.params;
+    const document = await prisma.courseDocument.findFirst({
+      where: { id: documentId, courseId }
+    });
+    if (!document) {
+      return res.status(404).json({ message: "Document not found" });
+    }
+    const token = jwt.sign(
+      { documentId: document.id },
+      env.jwtSecret,
+      { expiresIn: VIEW_TOKEN_EXPIRY }
+    );
+    res.json({ token });
+  }
+);
 
 /**
  * @swagger
@@ -294,6 +360,44 @@ router.post(
 );
 
 /**
+ * GET /api/courses/:id/documents/:documentId/download
+ * Stream document with correct filename (original format). Authenticated users who can view the course.
+ */
+router.get(
+  "/:id/documents/:documentId/download",
+  authenticate,
+  async (req, res) => {
+    const { id: courseId, documentId } = req.params;
+
+    const document = await prisma.courseDocument.findFirst({
+      where: { id: documentId, courseId },
+      include: { course: true }
+    });
+    if (!document) {
+      return res.status(404).json({ message: "Document not found" });
+    }
+
+    const ext = document.fileType || "pdf";
+    const baseName = (document.title || "document").replace(/[^a-zA-Z0-9._\s-]/g, "_");
+    const filename = baseName.includes(".") ? baseName : `${baseName}.${ext}`;
+
+    try {
+      const response = await fetch(document.url, { method: "GET" });
+      if (!response.ok) {
+        return res.status(502).json({ message: "Failed to fetch document" });
+      }
+      const buffer = await response.arrayBuffer();
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      const contentType = response.headers.get("content-type");
+      if (contentType) res.setHeader("Content-Type", contentType);
+      res.send(Buffer.from(buffer));
+    } catch (e) {
+      return res.status(502).json({ message: "Failed to stream document" });
+    }
+  }
+);
+
+/**
  * @swagger
  * /api/courses/{id}:
  *   get:
@@ -475,6 +579,29 @@ router.patch(
 
     if (status === "APPROVED") {
       await createNotification(existing.teacherId, "Your course has been approved.");
+      const teacher = await prisma.user.findUnique({
+        where: { id: existing.teacherId },
+        select: { email: true, firstName: true }
+      });
+      if (teacher?.email) {
+        await sendEmail({
+          to: teacher.email,
+          subject: "Your course has been approved",
+          text: `Hello ${teacher.firstName},\n\nYour course "${course.title}" has been approved and is now available to students.\n\nRegards,\nIGA`
+        });
+      }
+    } else if (status === "REJECTED") {
+      const teacher = await prisma.user.findUnique({
+        where: { id: existing.teacherId },
+        select: { email: true, firstName: true }
+      });
+      if (teacher?.email) {
+        await sendEmail({
+          to: teacher.email,
+          subject: "Your course has been rejected",
+          text: `Hello ${teacher.firstName},\n\nYour course "${course.title}" has been rejected. Please review the course details and make any necessary changes before resubmitting.\n\nRegards,\nIGA`
+        });
+      }
     }
     await logActivity(req.user!.id, `Course ${id} status updated to ${status}`);
 

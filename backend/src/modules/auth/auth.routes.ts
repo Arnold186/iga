@@ -3,6 +3,7 @@ import {
   forgotPasswordHandler,
   loginHandler,
   registerHandler,
+  resendOtpHandler,
   resetPasswordHandler,
   verifyOtpHandler
 } from "./auth.controller";
@@ -10,6 +11,7 @@ import {
   forgotPasswordSchema,
   loginSchema,
   registerSchema,
+  resendOtpSchema,
   resetPasswordSchema,
   verifyOtpSchema
 } from "./auth.schemas";
@@ -74,6 +76,16 @@ router.post("/verify-otp", validateBody(verifyOtpSchema), verifyOtpHandler);
 
 /**
  * @swagger
+ * /api/auth/resend-otp:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Resend OTP for email verification
+ *     security: []
+ */
+router.post("/resend-otp", validateBody(resendOtpSchema), resendOtpHandler);
+
+/**
+ * @swagger
  * /api/auth/login:
  *   post:
  *     tags: [Auth]
@@ -123,7 +135,7 @@ router.post("/forgot-password", validateBody(forgotPasswordSchema), forgotPasswo
  * /api/auth/reset-password:
  *   post:
  *     tags: [Auth]
- *     summary: Reset password with token
+ *     summary: Reset password with OTP
  *     security: []
  *     requestBody:
  *       content:
@@ -131,7 +143,9 @@ router.post("/forgot-password", validateBody(forgotPasswordSchema), forgotPasswo
  *           schema:
  *             type: object
  *             properties:
- *               token:
+ *               email:
+ *                 type: string
+ *               otp:
  *                 type: string
  *               password:
  *                 type: string

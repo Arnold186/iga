@@ -4,6 +4,7 @@ import { prisma } from "../../prisma/client";
 import { upload, uploadToCloudinary } from "../../utils/cloudinary";
 import { z } from "zod";
 import { validateBody } from "../../middleware/validate";
+import { Role } from "@prisma/client";
 
 const router = Router();
 
@@ -46,6 +47,113 @@ router.get("/me", authenticate, async (req, res) => {
     ...user,
     name: `${user.firstName} ${user.lastName}`.trim()
   });
+});
+
+/**
+ * @swagger
+ * /api/users/list:
+ *   get:
+ *     tags: [Users]
+ *     summary: List users available for direct messages.
+ *     description: |
+ *       - TEACHER: can see all active users (students, teachers, admins) except themselves.
+ *       - ADMIN: can see all active teachers and students (no other admins).
+ *       - STUDENT: can see classmates (students sharing at least one course) and teachers of their courses.
+ *     parameters:
+ *       - in: query
+ *         name: search
+ *         required: false
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of users (id, name, email, role). Excludes current user.
+ */
+router.get("/list", authenticate, async (req, res) => {
+  const search = (req.query.search as string)?.trim() || "";
+  const currentId = req.user!.id;
+  const currentRole = req.user!.role as Role;
+
+  const searchFilter = search
+    ? {
+        OR: [
+          { firstName: { contains: search, mode: "insensitive" as const } },
+          { lastName: { contains: search, mode: "insensitive" as const } },
+          { email: { contains: search, mode: "insensitive" as const } }
+        ]
+      }
+    : {};
+
+  let whereClause: any = {
+    id: { not: currentId },
+    isActive: true,
+    ...searchFilter
+  };
+
+  if (currentRole === Role.TEACHER) {
+    // Teachers can see everyone (students, teachers, admins)
+  } else if (currentRole === Role.ADMIN) {
+    // Admins can see teachers and students, but not other admins
+    whereClause = {
+      ...whereClause,
+      role: { in: [Role.TEACHER, Role.STUDENT] }
+    };
+  } else if (currentRole === Role.STUDENT) {
+    // Students can only DM classmates and teachers of their courses
+    const enrollments = await prisma.enrollment.findMany({
+      where: { studentId: currentId },
+      select: { courseId: true }
+    });
+    const courseIds = enrollments.map((e) => e.courseId);
+
+    if (courseIds.length === 0) {
+      return res.json([]);
+    }
+
+    whereClause = {
+      id: { not: currentId },
+      isActive: true,
+      ...searchFilter,
+      OR: [
+        {
+          role: Role.TEACHER,
+          courses: {
+            some: {
+              id: { in: courseIds }
+            }
+          }
+        },
+        {
+          role: Role.STUDENT,
+          enrollments: {
+            some: {
+              courseId: { in: courseIds }
+            }
+          }
+        }
+      ]
+    };
+  }
+
+  const users = await prisma.user.findMany({
+    where: whereClause,
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+      email: true,
+      role: true
+    },
+    orderBy: [{ firstName: "asc" }, { lastName: "asc" }]
+  });
+
+  res.json(
+    users.map((u) => ({
+      id: u.id,
+      name: `${u.firstName} ${u.lastName}`.trim(),
+      email: u.email,
+      role: u.role
+    }))
+  );
 });
 
 /**

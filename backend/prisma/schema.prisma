@@ -209,6 +209,7 @@ model OTPVerification {
   id         String   @id @default(uuid())
   userId     String
   otp        String
+  purpose    OtpPurpose @default(REGISTRATION)
   expiresAt  DateTime
   verified   Boolean  @default(false)
   createdAt  DateTime @default(now())
@@ -244,5 +245,10 @@ enum AssignmentStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+enum OtpPurpose {
+  REGISTRATION
+  PASSWORD_RESET
 }
 

@@ -12,6 +12,10 @@ export const verifyOtpSchema = z.object({
   otp: z.string().length(6)
 });
 
+export const resendOtpSchema = z.object({
+  email: z.string().email()
+});
+
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6)
@@ -22,7 +26,8 @@ export const forgotPasswordSchema = z.object({
 });
 
 export const resetPasswordSchema = z.object({
-  token: z.string().min(10),
+  email: z.string().email(),
+  otp: z.string().length(6),
   password: z.string().min(6)
 });
 

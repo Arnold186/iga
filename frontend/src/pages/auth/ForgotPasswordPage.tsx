@@ -2,7 +2,7 @@ import React from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
 import { api } from "../../services/api";
 import { AuthLayout } from "../../layouts/AuthLayout";
@@ -20,20 +20,22 @@ export const ForgotPasswordPage: React.FC = () => {
   const { register, handleSubmit, formState } = useForm<FormValues>({
     resolver: zodResolver(schema)
   });
+  const navigate = useNavigate();
 
   const onSubmit = async (data: FormValues) => {
     try {
       await api.post("/api/auth/forgot-password", data);
-      toast.info("If an account exists, a reset link was sent.");
+      toast.info("If an account exists, an OTP has been sent to your email.");
+      navigate("/reset-password?email=" + encodeURIComponent(data.email));
     } catch {
-      toast.error("Unable to send reset link");
+      toast.error("Unable to send OTP");
     }
   };
 
   return (
     <AuthLayout
       title="Forgot password"
-      subtitle="We’ll email you a password reset link."
+      subtitle="We’ll email you a 6-digit OTP to reset your password."
       footer={
         <Link className="text-primary hover:underline" to="/login">
           Back to login
@@ -49,7 +51,7 @@ export const ForgotPasswordPage: React.FC = () => {
           )}
         </div>
         <Button className="w-full" type="submit" disabled={formState.isSubmitting}>
-          {formState.isSubmitting ? "Sending…" : "Send reset link"}
+          {formState.isSubmitting ? "Sending…" : "Send OTP"}
         </Button>
       </form>
     </AuthLayout>
