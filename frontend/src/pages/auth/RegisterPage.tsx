@@ -15,7 +15,8 @@ const schema = z.object({
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   email: z.string().email(),
-  password: z.string().min(6)
+  password: z.string().min(6),
+  role: z.enum(["STUDENT", "ADMIN"])
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -23,7 +24,7 @@ type FormValues = z.infer<typeof schema>;
 export const RegisterPage: React.FC = () => {
   const { register, handleSubmit, formState } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: {}
+    defaultValues: { role: "STUDENT" }
   });
   const navigate = useNavigate();
 
@@ -40,7 +41,7 @@ export const RegisterPage: React.FC = () => {
   return (
     <AuthLayout
       title="Create your account"
-      subtitle="Register as a student. Teachers are created by admins."
+      subtitle="Choose `STUDENT` or `ADMIN`. Admins can create teachers."
       footer={
         <div className="flex items-center justify-between">
           <span>Already have an account?</span>
@@ -74,6 +75,17 @@ export const RegisterPage: React.FC = () => {
           {formState.errors.email && (
             <div className="text-xs text-red-600">{formState.errors.email.message}</div>
           )}
+        </div>
+
+        <div className="space-y-2">
+          <Label>Account type</Label>
+          <select
+            className="mt-2 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm"
+            {...register("role")}
+          >
+            <option value="STUDENT">Student</option>
+            <option value="ADMIN">Admin</option>
+          </select>
         </div>
 
         <PasswordInput label="Password" placeholder="Create a strong password" {...register("password")} />

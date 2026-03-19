@@ -15,6 +15,7 @@ model User {
   password     String
   role         Role      @default(STUDENT)
   profileImage String?
+  mustChangePassword Boolean @default(false)
   isActive     Boolean   @default(true)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @default(now()) @updatedAt
@@ -76,14 +77,32 @@ model Enrollment {
 }
 
 model Quiz {
-  id        String   @id @default(uuid())
-  title     String
-  courseId  String
-  published Boolean  @default(false)
+  id             String   @id @default(uuid())
+  title          String
+  courseId       String
+  published      Boolean  @default(false)
 
-  course    Course    @relation(fields: [courseId], references: [id])
-  questions Question[]
+  /** If set, students can only start the quiz within this window. */
+  availableFrom  DateTime?
+  /** If set, students can only start the quiz until this time. */
+  availableTo    DateTime?
+  /**
+   * If set, each attempt expires after `startedAt + durationSeconds`.
+   * (Countdown mode)
+   */
+  durationSeconds Int?
+
+  /** Maximum number of completed attempts per student for this quiz. */
+  allowedAttempts Int @default(1)
+
+  course      Course    @relation(fields: [courseId], references: [id])
+  questions   Question[]
   submissions Submission[]
+}
+
+enum QuestionType {
+  SINGLE
+  MULTI
 }
 
 model Question {
@@ -91,23 +110,38 @@ model Question {
   quizId       String
   questionText String
   options      String   // JSON string of options array
-  correctAnswer String
+  correctAnswers String // JSON string of correct options array
+  questionType QuestionType @default(SINGLE)
 
   quiz Quiz @relation(fields: [quizId], references: [id])
+}
+
+enum SubmissionStatus {
+  IN_PROGRESS
+  COMPLETED
 }
 
 model Submission {
   id        String   @id @default(uuid())
   studentId String
   quizId    String
-  answers   String   // JSON string of answers
-  score     Int
-  createdAt DateTime @default(now())
+  attemptNumber Int @default(1)
+
+  answers   String? // JSON string of answers (stored on submit)
+  score     Int?
+
+  status    SubmissionStatus @default(IN_PROGRESS)
+  startedAt DateTime @default(now())
+  submittedAt DateTime?
+
+  /** Computed from quiz settings for UI + enforcement. */
+  expiresAt DateTime?
+  timeSpentSeconds Int?
 
   student User @relation(fields: [studentId], references: [id])
   quiz    Quiz @relation(fields: [quizId], references: [id])
 
-  @@unique([studentId, quizId])
+  @@unique([studentId, quizId, attemptNumber])
 }
 
 model Message {

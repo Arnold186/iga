@@ -4,6 +4,15 @@ import { api } from "../../services/api";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
+import { Textarea } from "../../components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "../../components/ui/dialog";
 
 type PendingCourse = {
   id: string;
@@ -11,6 +20,7 @@ type PendingCourse = {
   description: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
   image?: string | null;
+  rejectionReason?: string | null;
   teacher?: { id: string; firstName: string; lastName: string; email: string } | null;
   createdAt?: string;
 };
@@ -20,6 +30,8 @@ export const CourseApprovalPage: React.FC = () => {
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [rejecting, setRejecting] = useState<PendingCourse | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
 
   const load = () => {
     setLoading(true);
@@ -41,10 +53,17 @@ export const CourseApprovalPage: React.FC = () => {
     );
   }, [q, courses]);
 
-  const setStatus = async (courseId: string, status: "APPROVED" | "REJECTED") => {
+  const setStatus = async (
+    courseId: string,
+    status: "APPROVED" | "REJECTED",
+    rejectionReason?: string
+  ) => {
     setSavingId(courseId);
     try {
-      await api.patch(`/api/courses/${courseId}/status`, { status });
+      await api.patch(`/api/courses/${courseId}/status`, {
+        status,
+        ...(status === "REJECTED" ? { rejectionReason } : {})
+      });
       setCourses((prev) => prev.filter((c) => c.id !== courseId));
     } finally {
       setSavingId(null);
@@ -88,7 +107,10 @@ export const CourseApprovalPage: React.FC = () => {
               <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
                 <Button
                   variant="outline"
-                  onClick={() => setStatus(c.id, "REJECTED")}
+                  onClick={() => {
+                    setRejecting(c);
+                    setRejectReason("");
+                  }}
                   disabled={savingId === c.id}
                 >
                   {savingId === c.id ? "Saving…" : "Reject"}
@@ -110,6 +132,48 @@ export const CourseApprovalPage: React.FC = () => {
           </CardHeader>
         </Card>
       )}
+
+      <Dialog open={!!rejecting} onOpenChange={(open) => (!open ? setRejecting(null) : null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject course</DialogTitle>
+            <DialogDescription>
+              Provide a short message explaining why you’re rejecting this course. This will be emailed to the teacher.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            <div className="text-sm">
+              <span className="text-muted-foreground">Course:</span>{" "}
+              <span className="font-medium">{rejecting?.title ?? ""}</span>
+            </div>
+            <Textarea
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Reason for rejection…"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRejecting(null)} disabled={savingId === rejecting?.id}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                if (!rejecting) return;
+                const reason = rejectReason.trim();
+                if (!reason) return;
+                await setStatus(rejecting.id, "REJECTED", reason);
+                setRejecting(null);
+              }}
+              disabled={!rejectReason.trim() || savingId === rejecting?.id}
+            >
+              {savingId === rejecting?.id ? "Saving…" : "Reject"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

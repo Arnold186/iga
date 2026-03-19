@@ -2,19 +2,23 @@ import { Request, Response } from "express";
 import {
   login,
   registerUser,
+  createTeacherByAdmin,
   requestPasswordReset,
   resetPassword,
   resendRegistrationOtp,
-  verifyOtp
+  verifyOtp,
+  loginWithGoogle,
+  changeUserPassword
 } from "./auth.service";
 import { Role } from "@prisma/client";
 
 export async function registerHandler(req: Request, res: Response) {
-  const { firstName, lastName, email, password } = req.body as {
+  const { firstName, lastName, email, password, role } = req.body as {
     firstName: string;
     lastName: string;
     email: string;
     password: string;
+    role?: Role;
   };
 
   const result = await registerUser({
@@ -22,10 +26,10 @@ export async function registerHandler(req: Request, res: Response) {
     lastName,
     email,
     password,
-    role: Role.STUDENT
+    role: role ?? Role.STUDENT
   });
   res.status(201).json({
-    message: "Registered successfully. Please verify OTP sent to your email.",
+    message: "Registered successfully.",
     user: result
   });
 }
@@ -61,5 +65,39 @@ export async function resetPasswordHandler(req: Request, res: Response) {
   const { email, otp, password } = req.body as { email: string; otp: string; password: string };
   await resetPassword(email, otp, password);
   res.json({ message: "Password reset successfully." });
+}
+
+export async function googleAuthHandler(req: Request, res: Response) {
+  const { idToken } = req.body as { idToken: string };
+  const result = await loginWithGoogle(idToken);
+  res.json(result);
+}
+
+export async function createTeacherHandler(req: Request, res: Response) {
+  const { firstName, lastName, email, temporaryPassword } = req.body as {
+    firstName: string;
+    lastName: string;
+    email: string;
+    temporaryPassword?: string;
+  };
+
+  const result = await createTeacherByAdmin({
+    firstName,
+    lastName,
+    email,
+    temporaryPassword
+  });
+
+  res.status(201).json({
+    message: "Teacher created. Temporary password generated.",
+    teacher: result
+  });
+}
+
+export async function changePasswordHandler(req: Request, res: Response) {
+  const { password } = req.body as { password: string };
+  const userId = req.user!.id;
+  const result = await changeUserPassword(userId, password);
+  res.json(result);
 }
 

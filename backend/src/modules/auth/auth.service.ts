@@ -1,10 +1,11 @@
 import { prisma } from "../../prisma/client";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
+import * as jwt from "jsonwebtoken";
 import { logActivity } from "../../utils/activityLog";
 import { Role } from "@prisma/client";
 import { env } from "../../config/env";
 import { sendEmail } from "../../utils/email";
+import { OAuth2Client } from "google-auth-library";
 
 const SALT_ROUNDS = 10;
 
@@ -34,23 +35,8 @@ export async function registerUser(params: {
 
   await logActivity(user.id, "User registered");
 
-  const otp = generateOtp();
-  const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-  await prisma.oTPVerification.create({
-    data: {
-      userId: user.id,
-      otp,
-      purpose: "REGISTRATION",
-      expiresAt
-    }
-  });
-
-  await sendEmail({
-    to: user.email,
-    subject: "IGA Registration OTP",
-    text: `Your IGA verification code is ${otp}. It will expire in 10 minutes.`
-  });
+  // Registration-based signups must receive an OTP email.
+  await resendRegistrationOtp(params.email);
 
   return { id: user.id, email: user.email };
 }
@@ -115,6 +101,52 @@ export async function resendRegistrationOtp(email: string) {
   });
 }
 
+export async function createTeacherByAdmin(params: {
+  firstName: string;
+  lastName: string;
+  email: string;
+  temporaryPassword?: string;
+}) {
+  const existing = await prisma.user.findUnique({ where: { email: params.email } });
+  if (existing) {
+    throw { status: 400, message: "Email already in use" };
+  }
+
+  const tempPassword = params.temporaryPassword?.trim() ? params.temporaryPassword.trim() : generateTemporaryPassword();
+  const hash = await bcrypt.hash(tempPassword, SALT_ROUNDS);
+
+  const teacher = await prisma.user.create({
+    data: {
+      firstName: params.firstName,
+      lastName: params.lastName,
+      email: params.email,
+      password: hash,
+      role: Role.TEACHER,
+      mustChangePassword: true
+    },
+    select: { id: true, email: true }
+  });
+
+  await logActivity(teacher.id, "Teacher created by admin");
+  return { id: teacher.id, email: teacher.email, temporaryPassword: tempPassword };
+}
+
+export async function changeUserPassword(userId: string, newPassword: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw { status: 404, message: "User not found" };
+  if (!user.mustChangePassword) {
+    return { message: "Password change not required." };
+  }
+
+  const hash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { password: hash, mustChangePassword: false }
+  });
+  await logActivity(userId, "Temporary password changed");
+  return { message: "Password updated. You can continue." };
+}
+
 export async function login(email: string, password: string) {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) {
@@ -129,21 +161,19 @@ export async function login(email: string, password: string) {
     throw { status: 400, message: "Invalid credentials" };
   }
 
-  // Only enforce OTP verification for accounts that actually have a
-  // REGISTRATION OTP record (i.e., went through OTP-based signup).
-  const hasRegistrationOtp = await prisma.oTPVerification.findFirst({
-    where: { userId: user.id, purpose: "REGISTRATION" }
-  });
-  if (hasRegistrationOtp) {
-    const hasVerifiedOtp = await prisma.oTPVerification.findFirst({
-      where: { userId: user.id, verified: true, purpose: "REGISTRATION" }
-    });
-    if (!hasVerifiedOtp) {
-      throw {
-        status: 403,
-        message: "Please verify your email with the OTP sent to you before logging in."
-      };
+  // Enforce OTP verification only for accounts that still have an
+  // unverified REGISTRATION OTP record.
+  const pendingRegistrationOtp = await prisma.oTPVerification.findFirst({
+    where: {
+      userId: user.id,
+      purpose: "REGISTRATION",
+      verified: false,
+      expiresAt: { gt: new Date() }
     }
+  });
+
+  if (pendingRegistrationOtp) {
+    throw { status: 403, message: "Please verify your email with OTP first." };
   }
 
   const token = jwt.sign(
@@ -153,7 +183,7 @@ export async function login(email: string, password: string) {
       email: user.email
     },
     env.jwtSecret,
-    { expiresIn: env.jwtExpiresIn }
+    { expiresIn: env.jwtExpiresIn } as jwt.SignOptions
   );
 
   return {
@@ -163,7 +193,8 @@ export async function login(email: string, password: string) {
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
-      role: user.role
+      role: user.role,
+      mustChangePassword: user.mustChangePassword
     }
   };
 }
@@ -255,5 +286,79 @@ export async function resetPassword(email: string, otp: string, newPassword: str
 
 function generateOtp() {
   return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+function generateTemporaryPassword() {
+  // Simple temporary password generator. In production, consider more robust generation.
+  const letters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const all = letters + digits;
+  let out = "";
+  for (let i = 0; i < 10; i++) {
+    out += all[Math.floor(Math.random() * all.length)];
+  }
+  return out;
+}
+
+const googleClient = new OAuth2Client(env.googleClientId);
+
+export async function loginWithGoogle(idToken: string) {
+  if (!env.googleClientId) {
+    throw { status: 500, message: "Google sign-in is not configured." };
+  }
+
+  const ticket = await googleClient.verifyIdToken({
+    idToken,
+    audience: env.googleClientId
+  });
+
+  const payload = ticket.getPayload();
+  if (!payload || !payload.email) {
+    throw { status: 400, message: "Unable to get email from Google account." };
+  }
+
+  const email = payload.email;
+  const firstName = payload.given_name || "Google";
+  const lastName = payload.family_name || "User";
+
+  let user = await prisma.user.findUnique({ where: { email } });
+
+  if (!user) {
+    const hash = await bcrypt.hash(jwt.sign({ sub: payload.sub }, env.jwtSecret), SALT_ROUNDS);
+
+    user = await prisma.user.create({
+      data: {
+        firstName,
+        lastName,
+        email,
+        password: hash,
+        role: Role.STUDENT,
+        isActive: true
+      }
+    });
+
+    await logActivity(user.id, "User registered via Google");
+  }
+
+  const token = jwt.sign(
+    {
+      id: user.id,
+      role: user.role,
+      email: user.email
+    },
+    env.jwtSecret,
+    { expiresIn: env.jwtExpiresIn } as jwt.SignOptions
+  );
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      role: user.role
+    }
+  };
 }
 

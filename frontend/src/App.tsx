@@ -25,6 +25,7 @@ import { TeacherDashboardPage } from "./pages/teacher/TeacherDashboardPage";
 import { TeacherCoursesPage } from "./pages/teacher/TeacherCoursesPage";
 import { AssignmentsPage } from "./pages/teacher/AssignmentsPage";
 import { StudentListPage } from "./pages/teacher/StudentListPage";
+import { ChangeTeacherPasswordPage } from "./pages/teacher/ChangeTeacherPasswordPage";
 import { CourseCatalogPage } from "./pages/student/CourseCatalogPage";
 import { CourseDetailPage } from "./pages/student/CourseDetailPage";
 
@@ -61,6 +62,7 @@ const AppRoutes: React.FC = () => {
       <Route element={<RequireRole roles={["TEACHER"]} />}>
         <Route path="/teacher" element={<TeacherLayout />}>
           <Route index element={<TeacherDashboardPage />} />
+          <Route path="change-password" element={<ChangeTeacherPasswordPage />} />
           <Route path="courses" element={<TeacherCoursesPage />} />
           <Route path="courses/new" element={<TeacherCoursesPage />} />
           <Route path="assignments" element={<AssignmentsPage />} />

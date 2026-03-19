@@ -48,7 +48,11 @@ export const LoginPage: React.FC = () => {
     try {
       const user = await login(data);
       toast.success("Welcome back!");
-      navigate(getRedirectPath(user?.role));
+      if (user?.mustChangePassword) {
+        navigate("/teacher/change-password");
+      } else {
+        navigate(getRedirectPath(user?.role));
+      }
     } catch (err: unknown) {
       const msg = extractErrorMessage(err);
       if (msg.toLowerCase().includes("verify your email") || msg.toLowerCase().includes("verify otp")) {

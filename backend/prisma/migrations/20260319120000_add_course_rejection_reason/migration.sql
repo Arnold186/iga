@@ -1,0 +1,3 @@
+-- Placeholder migration file.
+-- The directory existed without a `migration.sql`, which breaks `prisma migrate dev` (P3015).
+-- This project currently does not rely on the missing migration for quiz functionality.

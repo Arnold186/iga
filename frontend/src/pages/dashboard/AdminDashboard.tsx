@@ -71,7 +71,13 @@ export const AdminDashboard: React.FC = () => {
   }, []);
 
   const updateCourseStatus = async (courseId: string, status: string) => {
-    await axios.patch(`/api/courses/${courseId}/status`, { status });
+    if (status === "REJECTED") {
+      const reason = window.prompt("Reason for rejecting this course? (This will be emailed to the teacher)");
+      if (!reason || !reason.trim()) return;
+      await axios.patch(`/api/courses/${courseId}/status`, { status, rejectionReason: reason.trim() });
+    } else {
+      await axios.patch(`/api/courses/${courseId}/status`, { status });
+    }
     toast.success(`Course ${status.toLowerCase()}`);
     load().catch(() => {});
   };

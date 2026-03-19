@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
+import { Link } from "react-router-dom";
 import { DashboardShell } from "./DashboardShell";
 import { ChatPanel } from "../../components/ChatPanel";
 import { ProfileCard } from "../../components/ProfileCard";
@@ -14,8 +15,14 @@ interface Course {
 
 interface QuizSubmission {
   id: string;
-  score: number;
-  quiz: { id: string; title: string; course: { title: string }; questions: unknown[] };
+  attemptNumber: number;
+  score: number | null;
+  percentScore: number | null;
+  totalQuestions: number;
+  submittedAt: string | null;
+  timeSpentSeconds: number | null;
+  status: "IN_PROGRESS" | "COMPLETED";
+  quiz: { id: string; title: string; course: { title: string } };
 }
 
 interface Assignment {
@@ -34,19 +41,6 @@ interface AssignmentGrade {
   assignment: { id: string; title: string; course: { title: string } };
 }
 
-interface Question {
-  id: string;
-  questionText: string;
-  options: string;
-  correctAnswer: string;
-}
-
-interface Quiz {
-  id: string;
-  title: string;
-  questions: Question[];
-}
-
 export const StudentDashboard: React.FC = () => {
   const [courses, setCourses] = useState<Course[]>([]);
   const [enrolledIds, setEnrolledIds] = useState<Set<string>>(new Set());
@@ -54,9 +48,6 @@ export const StudentDashboard: React.FC = () => {
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [assignmentGrades, setAssignmentGrades] = useState<AssignmentGrade[]>([]);
   const [submittingAssignment, setSubmittingAssignment] = useState<string | null>(null);
-  const [quizModal, setQuizModal] = useState<Quiz | null>(null);
-  const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
-  const [submittingQuiz, setSubmittingQuiz] = useState(false);
   const [ratingInputs, setRatingInputs] = useState<Record<string, { rating: number; review: string }>>({});
 
   const load = async () => {
@@ -100,34 +91,6 @@ export const StudentDashboard: React.FC = () => {
       toast.error(err?.response?.data?.message || "Submit failed");
     } finally {
       setSubmittingAssignment(null);
-    }
-  };
-
-  const loadQuiz = async (quizId: string) => {
-    const res = await axios.get<Quiz>(`/api/quizzes/${quizId}`);
-    setQuizModal(res.data);
-    setQuizAnswers({});
-  };
-
-  const submitQuiz = async () => {
-    if (!quizModal) return;
-    const answers = Object.entries(quizAnswers)
-      .filter(([, v]) => v)
-      .map(([questionId, answer]) => ({ questionId, answer }));
-    if (answers.length === 0) {
-      toast.error("Answer at least one question");
-      return;
-    }
-    try {
-      setSubmittingQuiz(true);
-      await axios.post(`/api/quizzes/${quizModal.id}/submit`, { answers });
-      toast.success("Quiz submitted");
-      setQuizModal(null);
-      load().catch(() => {});
-    } catch (err: any) {
-      toast.error(err?.response?.data?.message || "Submit failed");
-    } finally {
-      setSubmittingQuiz(false);
     }
   };
 
@@ -315,14 +278,16 @@ export const StudentDashboard: React.FC = () => {
                     <small>{s.quiz?.course?.title}</small>
                   </div>
                   <div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
-                    <span className="badge info">Score: {s.score}</span>
-                    <button
+                    <span className="badge info">
+                      Score: {s.percentScore != null ? `${s.percentScore}%` : "—"}
+                    </span>
+                    <Link
+                      to="/student/quizzes"
                       className="btn outline"
-                      style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem" }}
-                      onClick={() => loadQuiz(s.quiz?.id || "")}
+                      style={{ padding: "0.25rem 0.5rem", fontSize: "0.8rem", textDecoration: "none" }}
                     >
                       Retake
-                    </button>
+                    </Link>
                   </div>
                 </div>
               ))}
@@ -332,71 +297,6 @@ export const StudentDashboard: React.FC = () => {
         </div>
         <ChatPanel />
       </div>
-
-      {quizModal && (
-        <>
-          <div
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,0.5)",
-              zIndex: 99
-            }}
-            onClick={() => setQuizModal(null)}
-          />
-          <div
-            className="card"
-          style={{
-            position: "fixed",
-            inset: "2rem",
-            zIndex: 100,
-            overflow: "auto",
-            maxWidth: "600px",
-            margin: "auto"
-          }}
-        >
-          <h2>Quiz: {quizModal.title}</h2>
-          {quizModal.questions?.map((q) => {
-            const opts = (() => {
-              try {
-                return JSON.parse(q.options) as string[];
-              } catch {
-                return [];
-              }
-            })();
-            return (
-              <div key={q.id} style={{ marginBottom: "1rem" }}>
-                <div className="label">{q.questionText}</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                  {opts.map((opt) => (
-                    <label key={opt} style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
-                      <input
-                        type="radio"
-                        name={q.id}
-                        value={opt}
-                        checked={quizAnswers[q.id] === opt}
-                        onChange={() =>
-                          setQuizAnswers((p) => ({ ...p, [q.id]: opt }))
-                        }
-                      />
-                      {opt}
-                    </label>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-          <div style={{ display: "flex", gap: "0.5rem" }}>
-            <button className="btn primary" onClick={submitQuiz} disabled={submittingQuiz}>
-              {submittingQuiz ? "Submitting..." : "Submit"}
-            </button>
-            <button className="btn outline" onClick={() => setQuizModal(null)}>
-              Cancel
-            </button>
-          </div>
-        </div>
-        </>
-      )}
     </DashboardShell>
   );
 };

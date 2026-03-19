@@ -1,21 +1,29 @@
 import { Router } from "express";
 import {
   forgotPasswordHandler,
+  createTeacherHandler,
   loginHandler,
   registerHandler,
   resendOtpHandler,
+  changePasswordHandler,
   resetPasswordHandler,
-  verifyOtpHandler
+  verifyOtpHandler,
+  googleAuthHandler
 } from "./auth.controller";
 import {
   forgotPasswordSchema,
   loginSchema,
+  createTeacherSchema,
   registerSchema,
   resendOtpSchema,
+  changePasswordSchema,
   resetPasswordSchema,
-  verifyOtpSchema
+  verifyOtpSchema,
+  googleAuthSchema
 } from "./auth.schemas";
 import { validateBody } from "../../middleware/validate";
+import { authenticate, requireRole } from "../../middleware/auth";
+import { Role } from "@prisma/client";
 
 const router = Router();
 
@@ -154,6 +162,43 @@ router.post("/forgot-password", validateBody(forgotPasswordSchema), forgotPasswo
  *         description: Password reset successfully
  */
 router.post("/reset-password", validateBody(resetPasswordSchema), resetPasswordHandler);
+
+/**
+ * @swagger
+ * /api/auth/google:
+ *   post:
+ *     tags: [Auth]
+ *     summary: Login or register using Google ID token
+ *     security: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               idToken:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Returns token and user
+ */
+router.post("/google", validateBody(googleAuthSchema), googleAuthHandler);
+
+router.post(
+  "/admin/create-teacher",
+  authenticate,
+  requireRole([Role.ADMIN]),
+  validateBody(createTeacherSchema),
+  createTeacherHandler
+);
+
+router.post(
+  "/change-password",
+  authenticate,
+  requireRole([Role.TEACHER]),
+  validateBody(changePasswordSchema),
+  changePasswordHandler
+);
 
 export default router;
 

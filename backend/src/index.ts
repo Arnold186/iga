@@ -1,6 +1,6 @@
 import http from "http";
 import { Server } from "socket.io";
-import jwt from "jsonwebtoken";
+import * as jwt from "jsonwebtoken";
 import { createApp } from "./app";
 import { env } from "./config/env";
 import { prisma } from "./prisma/client";

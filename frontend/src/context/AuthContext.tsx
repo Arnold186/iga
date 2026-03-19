@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useState } from "react";
 import { api } from "../services/api";
 
 type Role = "STUDENT" | "TEACHER" | "ADMIN";
@@ -9,6 +9,7 @@ interface User {
   lastName: string;
   email: string;
   role: Role;
+  mustChangePassword?: boolean;
 }
 
 interface AuthContextValue {

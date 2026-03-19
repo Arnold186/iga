@@ -1,5 +1,5 @@
 import { Router } from "express";
-import jwt from "jsonwebtoken";
+import * as jwt from "jsonwebtoken";
 import { authenticate, requireRole } from "../../middleware/auth";
 import { Role, CourseStatus } from "@prisma/client";
 import { prisma } from "../../prisma/client";
@@ -138,6 +138,35 @@ router.post(
     });
 
     await logActivity(req.user!.id, "Course created");
+
+    // Notify admins via email that a teacher submitted a course for approval
+    const [teacher, admins] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: req.user!.id },
+        select: { firstName: true, lastName: true, email: true }
+      }),
+      prisma.user.findMany({
+        where: { role: Role.ADMIN },
+        select: { email: true, firstName: true, lastName: true }
+      })
+    ]);
+
+    const teacherName = teacher ? `${teacher.firstName} ${teacher.lastName}` : "A teacher";
+    const approvalsUrl = `${env.frontendUrl}/admin/pending-approvals`;
+    const adminText = `${teacherName} published a course for approval.\n\nCourse: "${course.title}"\n\nReview it here: ${approvalsUrl}\n\nRegards,\nIGA`;
+
+    await Promise.all(
+      admins
+        .map((a) => a.email)
+        .filter(Boolean)
+        .map((email) =>
+          sendEmail({
+            to: email!,
+            subject: "New course pending approval",
+            text: adminText
+          })
+        )
+    );
 
     res.status(201).json(course);
   }
@@ -561,20 +590,36 @@ router.patch(
   authenticate,
   requireRole([Role.ADMIN]),
   validateBody(
-    z.object({
-      status: z.nativeEnum(CourseStatus)
-    })
+    z
+      .object({
+        status: z.nativeEnum(CourseStatus),
+        rejectionReason: z.string().trim().min(1).max(1000).optional()
+      })
+      .superRefine((val, ctx) => {
+        if (val.status === CourseStatus.REJECTED && !val.rejectionReason) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ["rejectionReason"],
+            message: "Rejection reason is required when rejecting a course"
+          });
+        }
+      })
   ),
   async (req, res) => {
     const { id } = req.params;
-    const { status } = req.body as { status: CourseStatus };
+    const { status, rejectionReason } = req.body as {
+      status: CourseStatus;
+      rejectionReason?: string;
+    };
 
     const existing = await prisma.course.findUnique({ where: { id } });
     if (!existing) return res.status(404).json({ message: "Course not found" });
 
     const course = await prisma.course.update({
       where: { id },
-      data: { status }
+      data: {
+        status
+      }
     });
 
     if (status === "APPROVED") {
@@ -591,6 +636,11 @@ router.patch(
         });
       }
     } else if (status === "REJECTED") {
+      const reasonText = rejectionReason?.trim() || "No reason provided";
+      await createNotification(
+        existing.teacherId,
+        `Your course has been rejected. Reason: ${reasonText}`
+      );
       const teacher = await prisma.user.findUnique({
         where: { id: existing.teacherId },
         select: { email: true, firstName: true }
@@ -599,7 +649,7 @@ router.patch(
         await sendEmail({
           to: teacher.email,
           subject: "Your course has been rejected",
-          text: `Hello ${teacher.firstName},\n\nYour course "${course.title}" has been rejected. Please review the course details and make any necessary changes before resubmitting.\n\nRegards,\nIGA`
+          text: `Hello ${teacher.firstName},\n\nYour course "${course.title}" has been rejected.\n\nReason: ${reasonText}\n\nPlease review the course details and make any necessary changes before resubmitting.\n\nRegards,\nIGA`
         });
       }
     }

@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 
 import { api } from "../../services/api";
+import { toast } from "react-toastify";
 import { Button } from "../../components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../../components/ui/card";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
+import { Textarea } from "../../components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs";
 
 type Course = { id: string; title: string; description: string; status: string };
@@ -30,7 +32,31 @@ type Quiz = {
   id: string;
   title: string;
   published: boolean;
-  questions: { id: string; questionText: string; options: string; correctAnswer: string }[];
+  availableFrom: string | null;
+  availableTo: string | null;
+  durationSeconds: number | null;
+  allowedAttempts: number;
+  totalMarks?: number;
+  questions: {
+    id: string;
+    questionText: string;
+    questionType: "SINGLE" | "MULTI";
+    marks?: number;
+    options: string[];
+    correctAnswers: string[];
+  }[];
+};
+
+type QuizSubmissionRow = {
+  id: string;
+  attemptNumber: number;
+  status: "IN_PROGRESS" | "COMPLETED";
+  score: number | null;
+  percentScore: number | null;
+  startedAt: string;
+  submittedAt: string | null;
+  timeSpentSeconds: number | null;
+  student: { id: string; firstName: string; lastName: string; email: string };
 };
 
 export const AssignmentsPage: React.FC = () => {
@@ -50,13 +76,57 @@ export const AssignmentsPage: React.FC = () => {
   const [creatingQuiz, setCreatingQuiz] = useState(false);
   const [quizTitle, setQuizTitle] = useState("");
   const [selectedQuizId, setSelectedQuizId] = useState<string>("");
-  const [questionForm, setQuestionForm] = useState({ questionText: "", options: "", correctAnswer: "" });
+  const [questionForm, setQuestionForm] = useState<{
+    questionText: string;
+    options: string[];
+    questionType: "SINGLE" | "MULTI";
+    correctAnswers: string[];
+    marks: string;
+  }>({ questionText: "", options: ["", "", "", ""], questionType: "SINGLE", correctAnswers: [], marks: "1" });
+  const [editingQuestionId, setEditingQuestionId] = useState<string | null>(null);
   const [savingQuestion, setSavingQuestion] = useState(false);
   const [publishingId, setPublishingId] = useState<string | null>(null);
+
+  const [quizSettings, setQuizSettings] = useState<{
+    availableFrom: string;
+    availableTo: string;
+    durationSeconds: string;
+    allowedAttempts: string;
+  }>({
+    availableFrom: "",
+    availableTo: "",
+    durationSeconds: "",
+    allowedAttempts: "1"
+  });
+
+  const [quizSubmissions, setQuizSubmissions] = useState<QuizSubmissionRow[]>([]);
+  const [loadingQuizSubmissions, setLoadingQuizSubmissions] = useState(false);
+
+  const toDatetimeLocalValue = (isoOrNull: string | null) => {
+    if (!isoOrNull) return "";
+    const d = new Date(isoOrNull);
+    if (Number.isNaN(d.getTime())) return "";
+    return d.toISOString().slice(0, 16);
+  };
 
   useEffect(() => {
     api.get<Course[]>("/api/courses").then((r) => setCourses(r.data)).catch(() => setCourses([]));
   }, []);
+
+  useEffect(() => {
+    if (!selectedQuizId) {
+      setQuizSubmissions([]);
+      return;
+    }
+
+    setLoadingQuizSubmissions(true);
+    api
+      .get<QuizSubmissionRow[]>(`/api/quizzes/${selectedQuizId}/submissions`)
+      .then((r) => setQuizSubmissions(r.data))
+      .catch(() => setQuizSubmissions([]))
+      .finally(() => setLoadingQuizSubmissions(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedQuizId]);
 
   const loadAssignments = async () => {
     const res = await api.get<Assignment[]>("/api/assignments");
@@ -77,6 +147,25 @@ export const AssignmentsPage: React.FC = () => {
     if (!selectedCourseId) return list;
     return list.filter((a) => a.courseId === selectedCourseId);
   }, [assignments, selectedCourseId]);
+
+  const selectedQuiz = useMemo(() => {
+    return quizzes.find((q) => q.id === selectedQuizId) ?? null;
+  }, [quizzes, selectedQuizId]);
+
+  const selectedQuizTotalMarks = useMemo(() => {
+    if (!selectedQuiz) return 0;
+    return selectedQuiz.questions.reduce((sum, q) => sum + (q.marks ?? 1), 0);
+  }, [selectedQuiz]);
+
+  const resetQuestionForm = () => {
+    setQuestionForm({
+      questionText: "",
+      options: ["", "", "", ""],
+      questionType: "SINGLE",
+      correctAnswers: [],
+      marks: "1"
+    });
+  };
 
   const createAssignment = async () => {
     if (!selectedCourseId || !assignmentForm.title.trim() || !assignmentForm.description.trim()) return;
@@ -132,30 +221,71 @@ export const AssignmentsPage: React.FC = () => {
 
   const addQuestion = async () => {
     if (!selectedQuizId || !questionForm.questionText.trim()) return;
-    const options = questionForm.options
-      .split("\n")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const correct = questionForm.correctAnswer.trim();
-    if (options.length < 2 || !options.includes(correct)) return;
+    const options = questionForm.options.map((s) => s.trim()).filter(Boolean);
+    const correctAnswers = questionForm.correctAnswers.filter((s) => s.trim()).map((s) => s.trim());
+    const marks = Number(questionForm.marks);
+
+    if (options.length < 2) {
+      toast.error("Add at least 2 options");
+      return;
+    }
+    if (questionForm.questionType === "SINGLE" && correctAnswers.length !== 1) {
+      toast.error("Single choice question needs exactly 1 correct answer");
+      return;
+    }
+    if (questionForm.questionType === "MULTI" && correctAnswers.length < 1) {
+      toast.error("Choose at least 1 correct answer");
+      return;
+    }
+    if (!correctAnswers.every((a) => options.includes(a))) {
+      toast.error("Correct answers must match the option text");
+      return;
+    }
+    if (!Number.isFinite(marks) || marks <= 0) {
+      toast.error("Marks must be greater than 0");
+      return;
+    }
+
     setSavingQuestion(true);
     try {
-      await api.post(`/api/quizzes/${selectedQuizId}/questions`, {
-        questionText: questionForm.questionText.trim(),
-        options,
-        correctAnswer: correct
-      });
-      setQuestionForm({ questionText: "", options: "", correctAnswer: "" });
+      if (editingQuestionId) {
+        await api.patch(`/api/quizzes/${selectedQuizId}/questions/${editingQuestionId}`, {
+          questionText: questionForm.questionText.trim(),
+          options,
+          questionType: questionForm.questionType,
+          correctAnswers,
+          marks
+        });
+      } else {
+        await api.post(`/api/quizzes/${selectedQuizId}/questions`, {
+          questionText: questionForm.questionText.trim(),
+          options,
+          questionType: questionForm.questionType,
+          correctAnswers,
+          marks
+        });
+      }
+
+      resetQuestionForm();
+      setEditingQuestionId(null);
       await loadQuizzes(selectedCourseId);
+      toast.success(editingQuestionId ? "Question updated" : "Question added");
     } finally {
       setSavingQuestion(false);
     }
   };
 
-  const publishQuiz = async (quizId: string) => {
+  const publishQuiz = async (quizId: string, settingsOverride?: typeof quizSettings) => {
     setPublishingId(quizId);
     try {
-      await api.patch(`/api/quizzes/${quizId}/publish`);
+      const settings = settingsOverride ?? quizSettings;
+      await api.patch(`/api/quizzes/${quizId}`, {
+        published: true,
+        availableFrom: settings.availableFrom || null,
+        availableTo: settings.availableTo || null,
+        durationSeconds: settings.durationSeconds === "" ? null : Number(settings.durationSeconds),
+        allowedAttempts: settings.allowedAttempts === "" ? null : Number(settings.allowedAttempts)
+      });
       await loadQuizzes(selectedCourseId);
     } finally {
       setPublishingId(null);
@@ -216,7 +346,11 @@ export const AssignmentsPage: React.FC = () => {
                 </div>
                 <div className="space-y-2">
                   <Label>Description</Label>
-                  <Input value={assignmentForm.description} onChange={(e) => setAssignmentForm((p) => ({ ...p, description: e.target.value }))} />
+                  <Textarea
+                    className="min-h-[120px]"
+                    value={assignmentForm.description}
+                    onChange={(e) => setAssignmentForm((p) => ({ ...p, description: e.target.value }))}
+                  />
                 </div>
                 <Button className="w-full" onClick={createAssignment} disabled={!selectedCourseId || creatingAssignment}>
                   {creatingAssignment ? "Creating…" : "Create"}
@@ -397,7 +531,17 @@ export const AssignmentsPage: React.FC = () => {
                             <tr
                               key={q.id}
                               className="cursor-pointer border-b last:border-b-0 hover:bg-slate-50"
-                              onClick={() => setSelectedQuizId(q.id)}
+                              onClick={() => {
+                                setSelectedQuizId(q.id);
+                                setQuizSettings({
+                                  availableFrom: toDatetimeLocalValue(q.availableFrom),
+                                  availableTo: toDatetimeLocalValue(q.availableTo),
+                                  durationSeconds: q.durationSeconds != null ? String(q.durationSeconds) : "",
+                                  allowedAttempts: String(q.allowedAttempts ?? 1)
+                                });
+                                resetQuestionForm();
+                                setEditingQuestionId(null);
+                              }}
                             >
                               <td className="py-3 pr-3 font-medium">{q.title}</td>
                               <td className="py-3 pr-3">{q.questions?.length ?? 0}</td>
@@ -416,13 +560,21 @@ export const AssignmentsPage: React.FC = () => {
                                 <Button
                                   size="sm"
                                   variant="outline"
-                                  disabled={q.published || publishingId === q.id}
+                                  disabled={publishingId === q.id || q.published}
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    publishQuiz(q.id).catch(() => {});
+                                    setSelectedQuizId(q.id);
+                                    setQuizSettings({
+                                      availableFrom: toDatetimeLocalValue(q.availableFrom),
+                                      availableTo: toDatetimeLocalValue(q.availableTo),
+                                      durationSeconds: q.durationSeconds != null ? String(q.durationSeconds) : "",
+                                      allowedAttempts: String(q.allowedAttempts ?? 1)
+                                    });
+                                    setEditingQuestionId(null);
+                                    resetQuestionForm();
                                   }}
                                 >
-                                  {publishingId === q.id ? "Publishing…" : q.published ? "Published" : "Publish"}
+                                  {q.published ? "Published" : publishingId === q.id ? "Working…" : "Configure"}
                                 </Button>
                               </td>
                             </tr>
@@ -439,12 +591,12 @@ export const AssignmentsPage: React.FC = () => {
                     </div>
 
                     {selectedQuizId && (
-                      <div className="rounded-xl border bg-white p-4">
-                        <div className="mb-3 flex items-center justify-between gap-3">
+                      <div className="rounded-xl border bg-white p-4 space-y-4">
+                        <div className="flex items-start justify-between gap-3">
                           <div>
-                            <div className="text-sm font-semibold">Add question</div>
+                            <div className="text-sm font-semibold">Quiz settings & questions</div>
                             <div className="text-xs text-muted-foreground">
-                              Options: one per line. Correct answer must match exactly.
+                              Configure start/close time, timer in minutes, attempts, and questions.
                             </div>
                           </div>
                           <Button variant="outline" size="sm" onClick={() => setSelectedQuizId("")}>
@@ -452,29 +604,327 @@ export const AssignmentsPage: React.FC = () => {
                           </Button>
                         </div>
 
-                        <div className="grid gap-3">
+                        <div className="grid gap-3 lg:grid-cols-2">
                           <div className="space-y-2">
-                            <Label>Question</Label>
-                            <Input value={questionForm.questionText} onChange={(e) => setQuestionForm((p) => ({ ...p, questionText: e.target.value }))} />
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Options (one per line)</Label>
-                            <textarea
-                              className="min-h-[110px] w-full rounded-md border bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                              value={questionForm.options}
-                              onChange={(e) => setQuestionForm((p) => ({ ...p, options: e.target.value }))}
-                              placeholder={"Option A\nOption B\nOption C"}
+                            <Label>Available from</Label>
+                            <Input
+                              type="datetime-local"
+                              value={quizSettings.availableFrom}
+                              onChange={(e) => setQuizSettings((p) => ({ ...p, availableFrom: e.target.value }))}
                             />
                           </div>
                           <div className="space-y-2">
-                            <Label>Correct answer</Label>
-                            <Input value={questionForm.correctAnswer} onChange={(e) => setQuestionForm((p) => ({ ...p, correctAnswer: e.target.value }))} />
+                            <Label>Available to</Label>
+                            <Input
+                              type="datetime-local"
+                              value={quizSettings.availableTo}
+                              onChange={(e) => setQuizSettings((p) => ({ ...p, availableTo: e.target.value }))}
+                            />
                           </div>
+                          <div className="space-y-2">
+                            <Label>Duration minutes (optional)</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={
+                                quizSettings.durationSeconds
+                                  ? String(Math.floor(Number(quizSettings.durationSeconds) / 60))
+                                  : ""
+                              }
+                              onChange={(e) =>
+                                setQuizSettings((p) => ({
+                                  ...p,
+                                  durationSeconds: e.target.value ? String(Number(e.target.value) * 60) : ""
+                                }))
+                              }
+                            />
+                            <div className="text-[11px] text-muted-foreground">Countdown starts when student begins quiz.</div>
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Allowed attempts</Label>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={quizSettings.allowedAttempts}
+                              onChange={(e) => setQuizSettings((p) => ({ ...p, allowedAttempts: e.target.value }))}
+                            />
+                          </div>
+                        </div>
+
+                        <div className="flex justify-end">
+                          <Button
+                            onClick={() => publishQuiz(selectedQuizId).catch(() => {})}
+                            disabled={publishingId === selectedQuizId || !!selectedQuiz?.published}
+                          >
+                            {publishingId === selectedQuizId
+                              ? "Publishing…"
+                              : selectedQuiz?.published
+                                ? "Published"
+                                : "Publish"}
+                          </Button>
+                        </div>
+
+                        <div className="rounded-lg border bg-slate-50 p-3 space-y-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold">Questions</div>
+                              <div className="text-xs text-muted-foreground">
+                                Edit for grading scheme or delete questions.
+                              </div>
+                            </div>
+                            <div className="text-sm font-semibold text-blue-700">Total marks: {selectedQuizTotalMarks}</div>
+                          </div>
+
+                          {selectedQuiz?.questions?.length ? (
+                            <div className="space-y-2">
+                              {selectedQuiz.questions.map((q) => (
+                                <div key={q.id} className="rounded-md border bg-white p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                      <div className="font-medium">{q.questionText}</div>
+                                      <div className="text-xs text-muted-foreground">
+                                        Type: {q.questionType} • Marks: {q.marks ?? 1}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        Correct: {q.correctAnswers.join(", ")}
+                                      </div>
+                                    </div>
+                                    <div className="flex gap-2 shrink-0">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => {
+                                          setEditingQuestionId(q.id);
+                                          setQuestionForm({
+                                            questionText: q.questionText,
+                                            options: q.options,
+                                            questionType: q.questionType,
+                                            correctAnswers: q.correctAnswers,
+                                            marks: String(q.marks ?? 1)
+                                          });
+                                        }}
+                                      >
+                                        Edit
+                                      </Button>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="border-red-200 text-red-700 hover:bg-red-50"
+                                        onClick={() => {
+                                          if (!window.confirm("Delete this question?")) return;
+                                          api
+                                            .delete(`/api/quizzes/${selectedQuizId}/questions/${q.id}`)
+                                            .then(() => {
+                                              setEditingQuestionId((prev) => (prev === q.id ? null : prev));
+                                              resetQuestionForm();
+                                              loadQuizzes(selectedCourseId).catch(() => {});
+                                            })
+                                            .catch(() => {});
+                                        }}
+                                      >
+                                        Delete
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-sm text-muted-foreground">No questions yet.</div>
+                          )}
+                        </div>
+
+                        <div className="rounded-lg border bg-white p-3 space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold">{editingQuestionId ? "Edit question" : "Add question"}</div>
+                              <div className="text-xs text-muted-foreground">
+                                Add option text then tick correct answer(s) on the right.
+                              </div>
+                            </div>
+                            {editingQuestionId && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  setEditingQuestionId(null);
+                                  resetQuestionForm();
+                                }}
+                              >
+                                Cancel
+                              </Button>
+                            )}
+                          </div>
+
+                          <div className="grid gap-3 lg:grid-cols-2">
+                            <div className="space-y-2">
+                              <Label>Question</Label>
+                              <Textarea
+                                className="min-h-[110px]"
+                                value={questionForm.questionText}
+                                onChange={(e) => setQuestionForm((p) => ({ ...p, questionText: e.target.value }))}
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <Label>Question type</Label>
+                              <select
+                                className="mt-2 flex h-10 w-full rounded-md border bg-background px-3 py-2 text-sm"
+                                value={questionForm.questionType}
+                                onChange={(e) => setQuestionForm((p) => ({ ...p, questionType: e.target.value as any }))}
+                              >
+                                <option value="SINGLE">Single choice</option>
+                                <option value="MULTI">Multi choice (checkbox)</option>
+                              </select>
+                            </div>
+
+                            <div className="space-y-2 lg:col-span-2">
+                              <div className="flex items-center justify-between">
+                                <Label>Options</Label>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() =>
+                                    setQuestionForm((p) => ({ ...p, options: [...p.options, ""] }))
+                                  }
+                                >
+                                  Add option
+                                </Button>
+                              </div>
+                              <div className="space-y-2">
+                                {questionForm.options.map((option, idx) => {
+                                  const isChecked = questionForm.correctAnswers.includes(option.trim());
+                                  return (
+                                    <div key={`option-${idx}`} className="flex items-center gap-2">
+                                      <Input
+                                        value={option}
+                                        placeholder={`Option ${idx + 1}`}
+                                        onChange={(e) =>
+                                          setQuestionForm((p) => {
+                                            const next = [...p.options];
+                                            const prevText = next[idx]?.trim() ?? "";
+                                            next[idx] = e.target.value;
+                                            const newText = e.target.value.trim();
+                                            let nextCorrect = p.correctAnswers;
+                                            if (prevText && prevText !== newText && nextCorrect.includes(prevText)) {
+                                              nextCorrect = nextCorrect.map((c) => (c === prevText ? newText : c)).filter(Boolean);
+                                            }
+                                            return { ...p, options: next, correctAnswers: nextCorrect };
+                                          })
+                                        }
+                                      />
+                                      <label className="flex items-center gap-1 text-sm whitespace-nowrap">
+                                        <input
+                                          type={questionForm.questionType === "SINGLE" ? "radio" : "checkbox"}
+                                          name="correct-answer"
+                                          checked={isChecked}
+                                          onChange={() => {
+                                            const trimmed = option.trim();
+                                            if (!trimmed) return;
+                                            setQuestionForm((p) => {
+                                              if (p.questionType === "SINGLE") {
+                                                return { ...p, correctAnswers: [trimmed] };
+                                              }
+                                              const exists = p.correctAnswers.includes(trimmed);
+                                              return {
+                                                ...p,
+                                                correctAnswers: exists
+                                                  ? p.correctAnswers.filter((c) => c !== trimmed)
+                                                  : [...p.correctAnswers, trimmed]
+                                              };
+                                            });
+                                          }}
+                                        />
+                                        Correct
+                                      </label>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() =>
+                                          setQuestionForm((p) => {
+                                            if (p.options.length <= 2) return p;
+                                            const removed = p.options[idx]?.trim() ?? "";
+                                            const nextOptions = p.options.filter((_, i) => i !== idx);
+                                            return {
+                                              ...p,
+                                              options: nextOptions,
+                                              correctAnswers: p.correctAnswers.filter((c) => c !== removed)
+                                            };
+                                          })
+                                        }
+                                      >
+                                        Remove
+                                      </Button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              <Label>Marks for this question</Label>
+                              <Input
+                                type="number"
+                                min={1}
+                                value={questionForm.marks}
+                                onChange={(e) => setQuestionForm((p) => ({ ...p, marks: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+
                           <div className="flex justify-end">
                             <Button onClick={() => addQuestion().catch(() => {})} disabled={savingQuestion}>
-                              {savingQuestion ? "Saving…" : "Add question"}
+                              {savingQuestion ? "Saving…" : editingQuestionId ? "Save changes" : "Add question"}
                             </Button>
                           </div>
+                        </div>
+
+                        <div className="rounded-lg border bg-slate-50 p-3 space-y-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-semibold">Quiz results</div>
+                              <div className="text-xs text-muted-foreground">
+                                Marks + attempts + timing (auto-graded).
+                              </div>
+                            </div>
+                          </div>
+
+                          {loadingQuizSubmissions ? (
+                            <div className="text-sm text-muted-foreground">Loading results…</div>
+                          ) : quizSubmissions.length === 0 ? (
+                            <div className="text-sm text-muted-foreground">No submissions yet.</div>
+                          ) : (
+                            <div className="space-y-2">
+                              {quizSubmissions.map((s) => (
+                                <div key={s.id} className="rounded-md border bg-white p-3">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <div className="font-medium">
+                                        {s.student.firstName} {s.student.lastName}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        Attempt {s.attemptNumber} • {s.status}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {s.submittedAt ? `Submitted: ${new Date(s.submittedAt).toLocaleString()}` : "In progress"}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {s.timeSpentSeconds != null ? `Time: ${s.timeSpentSeconds}s` : "—"}
+                                      </div>
+                                    </div>
+                                    <div className="text-right">
+                                      <div className="text-xs text-muted-foreground">Score</div>
+                                      <div className="text-lg font-semibold text-blue-700">
+                                        {s.percentScore != null ? `${s.percentScore}%` : "—"}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}

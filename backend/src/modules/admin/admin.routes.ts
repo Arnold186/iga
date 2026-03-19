@@ -94,8 +94,8 @@ router.post("/register-teacher", validateBody(registerTeacherSchema), async (req
   }
   const hash = await bcrypt.hash(password, 10);
   const teacher = await prisma.user.create({
-    data: { firstName, lastName, email, password: hash, role: Role.TEACHER },
-    select: { id: true, firstName: true, lastName: true, email: true, role: true, createdAt: true }
+    data: { firstName, lastName, email, password: hash, role: Role.TEACHER, mustChangePassword: true },
+    select: { id: true, firstName: true, lastName: true, email: true, role: true, createdAt: true, mustChangePassword: true }
   });
   res.status(201).json(teacher);
 });
@@ -167,7 +167,8 @@ router.post("/teachers", validateBody(registerTeacherSchema), async (req, res) =
       lastName,
       email,
       password: hash,
-      role: Role.TEACHER
+      role: Role.TEACHER,
+      mustChangePassword: true
     },
     select: {
       id: true,
@@ -175,7 +176,8 @@ router.post("/teachers", validateBody(registerTeacherSchema), async (req, res) =
       lastName: true,
       email: true,
       role: true,
-      createdAt: true
+      createdAt: true,
+      mustChangePassword: true
     }
   });
 
@@ -263,7 +265,7 @@ router.get("/analytics", async (_req, res) => {
 
   for (const sub of submissions) {
     const questionCount = sub.quiz.questions.length || 1;
-    const percentage = (questionCount ? (sub.score / questionCount) * 100 : 0);
+    const percentage = (questionCount ? (((sub.score ?? 0) / questionCount) * 100) : 0);
     totalPercentage += percentage;
     submissionCount += 1;
   }
