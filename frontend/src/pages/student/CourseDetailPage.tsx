@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { FileText, Download, Loader2, ExternalLink } from "lucide-react";
+import { toast } from "react-toastify";
 
 import { api } from "../../services/api";
 import { Button } from "../../components/ui/button";
@@ -127,6 +128,10 @@ export const CourseDetailPage: React.FC = () => {
     setEnrolling(true);
     try {
       await api.post(`/api/courses/${id}/enroll`);
+      toast.success("Enrolled");
+      // Quizzes page pulls from `/api/courses/enrolled`, so the student may need to refresh/navigate back.
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Enrollment failed");
     } finally {
       setEnrolling(false);
     }

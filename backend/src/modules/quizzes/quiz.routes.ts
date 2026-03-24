@@ -65,6 +65,7 @@ function normalizeQuestion(q: any, includeCorrectAnswers: boolean) {
 const createQuizSchema = z.object({
   title: z.string().min(1),
   courseId: z.string().uuid(),
+  weightPercent: z.any().optional().nullable(),
   availableFrom: z.any().optional().nullable(),
   availableTo: z.any().optional().nullable(),
   durationSeconds: z.any().optional().nullable(),
@@ -81,6 +82,9 @@ const addOrUpdateQuestionSchema = z.object({
   options: z.array(z.string().min(1)).min(2),
   questionType: z.enum(["SINGLE", "MULTI"]).optional().default("SINGLE"),
   correctAnswers: z.array(z.string().min(1)).min(1),
+  // NOTE: `marks` is not persisted as a DB column in the current schema.
+  // Marks are derived from the `options` JSON (if present), and defaulted to 1.
+  // Keeping this backend compatible with the DB prevents `Question.marks` column errors.
   marks: z.number().int().min(1).optional().default(1)
 });
 
@@ -102,6 +106,7 @@ router.post(
     const { title, courseId } = req.body as {
       title: string;
       courseId: string;
+      weightPercent?: unknown;
       availableFrom?: unknown;
       availableTo?: unknown;
       durationSeconds?: unknown;
@@ -152,6 +157,15 @@ router.post(
     const publishedRaw = (req.body as any).published;
     const published = publishedRaw === undefined || publishedRaw === null ? false : Boolean(publishedRaw);
 
+    const weightPercentRaw = (req.body as any).weightPercent;
+    const weightPercent =
+      weightPercentRaw === undefined || weightPercentRaw === null || weightPercentRaw === ""
+        ? 1
+        : Number(weightPercentRaw);
+    if (!Number.isFinite(weightPercent) || weightPercent < 0) {
+      return res.status(400).json({ message: "weightPercent must be a number >= 0" });
+    }
+
     if (availableFrom && availableTo && availableFrom > availableTo) {
       return res.status(400).json({ message: "availableFrom must be before availableTo" });
     }
@@ -160,6 +174,7 @@ router.post(
       data: {
         title,
         courseId,
+        weightPercent,
         availableFrom,
         availableTo,
         durationSeconds,
@@ -215,6 +230,15 @@ router.patch(
     const published =
       req.body.published === undefined || req.body.published === null ? quiz.published : Boolean(req.body.published);
 
+    const weightPercentRaw = (req.body as any).weightPercent;
+    const weightPercent =
+      weightPercentRaw === undefined || weightPercentRaw === null || weightPercentRaw === ""
+        ? quiz.weightPercent
+        : Number(weightPercentRaw);
+    if (!Number.isFinite(weightPercent) || weightPercent < 0) {
+      return res.status(400).json({ message: "weightPercent must be a number >= 0" });
+    }
+
     if (availableFrom && availableTo && availableFrom > availableTo) {
       return res.status(400).json({ message: "availableFrom must be before availableTo" });
     }
@@ -223,6 +247,7 @@ router.patch(
       where: { id: quizId },
       data: {
         title: req.body.title ?? quiz.title,
+        weightPercent,
         availableFrom,
         availableTo,
         durationSeconds,
@@ -288,6 +313,7 @@ router.post(
         quizId,
         questionText,
         questionType: type,
+        // Persist marks inside the `options` JSON (DB has no `Question.marks` column).
         options: JSON.stringify({ values: options, marks: Number(marks ?? 1) }),
         correctAnswers: JSON.stringify(correctAnswers)
       }
@@ -346,6 +372,7 @@ router.patch(
       data: {
         questionText,
         questionType: type,
+        // Persist marks inside the `options` JSON (DB has no `Question.marks` column).
         options: JSON.stringify({ values: options, marks: Number(marks ?? 1) }),
         correctAnswers: JSON.stringify(correctAnswers),
         quizId
@@ -398,7 +425,17 @@ router.get(
 
     const quizzes = await prisma.quiz.findMany({
       where: req.user!.role === Role.STUDENT ? { courseId, published: true } : { courseId },
-      include: { questions: true }
+      include: {
+        questions: {
+          select: {
+            id: true,
+            questionText: true,
+            questionType: true,
+            options: true,
+            correctAnswers: true
+          }
+        }
+      }
     });
 
     if (req.user!.role === Role.STUDENT) {
@@ -441,6 +478,7 @@ router.get(
             availableTo: q.availableTo,
             durationSeconds: q.durationSeconds,
             allowedAttempts: q.allowedAttempts,
+            weightPercent: q.weightPercent,
             totalMarks: q.questions.reduce((sum, qq: any) => sum + parseOptionsPayload(qq.options).marks, 0),
             questionCount: q.questions.length,
             attemptsUsed: used,
@@ -470,9 +508,73 @@ router.get(
   }
 );
 
+// IMPORTANT: This route must be registered BEFORE `/:id` below.
+// Otherwise Express matches "/my" as ":id" (id="my") and returns "Quiz not found".
+router.get(
+  "/my",
+  authenticate,
+  requireRole([Role.STUDENT]),
+  async (req, res) => {
+    const submissions = await prisma.submission.findMany({
+      where: { studentId: req.user!.id },
+      include: {
+        quiz: {
+          include: {
+            course: true,
+            questions: {
+              select: {
+                id: true,
+                questionText: true,
+                questionType: true,
+                options: true,
+                correctAnswers: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: [{ startedAt: "desc" }, { attemptNumber: "desc" }]
+    });
+
+    res.json(
+      submissions.map((s) => {
+        const totalQuestions = s.quiz.questions.length;
+        const totalMarks = s.quiz.questions.reduce((sum, q: any) => sum + parseOptionsPayload(q.options).marks, 0);
+        const percentScore = s.score == null ? null : Math.round((s.score / Math.max(1, totalMarks)) * 100);
+        // Strip questions from student payload (prevents leaking correct answers).
+        return {
+          ...s,
+          totalQuestions,
+          totalMarks,
+          percentScore,
+          quiz: {
+            id: s.quiz.id,
+            title: s.quiz.title,
+            course: s.quiz.course
+          }
+        };
+      })
+    );
+  }
+);
+
 router.get("/:id", authenticate, async (req, res) => {
   const { id } = req.params;
-  const quiz = await prisma.quiz.findUnique({ where: { id }, include: { questions: true, course: true } });
+  const quiz = await prisma.quiz.findUnique({
+    where: { id },
+    include: {
+      questions: {
+        select: {
+          id: true,
+          questionText: true,
+          questionType: true,
+          options: true,
+          correctAnswers: true
+        }
+      },
+      course: true
+    }
+  });
   if (!quiz) return res.status(404).json({ message: "Quiz not found" });
 
   const isStudent = req.user!.role === Role.STUDENT;
@@ -495,6 +597,7 @@ router.get("/:id", authenticate, async (req, res) => {
     availableTo: quiz.availableTo,
     durationSeconds: quiz.durationSeconds,
     allowedAttempts: quiz.allowedAttempts,
+    weightPercent: quiz.weightPercent,
     totalMarks: quiz.questions.reduce((sum, qq: any) => sum + parseOptionsPayload(qq.options).marks, 0),
     course: quiz.course,
     questions: quiz.questions.map((q: any) => normalizeQuestion(q, isTeacher))
@@ -507,7 +610,21 @@ router.post(
   requireRole([Role.STUDENT]),
   async (req, res) => {
     const quizId = req.params.id;
-    const quiz = await prisma.quiz.findUnique({ where: { id: quizId }, include: { course: true, questions: true } });
+    const quiz = await prisma.quiz.findUnique({
+      where: { id: quizId },
+      include: {
+        course: true,
+        questions: {
+          select: {
+            id: true,
+            questionText: true,
+            questionType: true,
+            options: true,
+            correctAnswers: true
+          }
+        }
+      }
+    });
     if (!quiz || !quiz.published) return res.status(403).json({ message: "Quiz not available" });
 
     const enrollment = await prisma.enrollment.findFirst({ where: { courseId: quiz.courseId, studentId: req.user!.id } });
@@ -621,7 +738,21 @@ router.post(
 
     const submission = await prisma.submission.findUnique({
       where: { id: attemptId },
-      include: { quiz: { include: { questions: true } } }
+      include: {
+        quiz: {
+          include: {
+            questions: {
+              select: {
+                id: true,
+                questionText: true,
+                questionType: true,
+                options: true,
+                correctAnswers: true
+              }
+            }
+          }
+        }
+      }
     });
     if (!submission || submission.studentId !== req.user!.id) {
       return res.status(403).json({ message: "Attempt not found" });
@@ -714,7 +845,21 @@ router.get(
   requireRole([Role.TEACHER]),
   async (req, res) => {
     const { id } = req.params;
-    const quiz = await prisma.quiz.findUnique({ where: { id }, include: { course: true, questions: true } });
+    const quiz = await prisma.quiz.findUnique({
+      where: { id },
+      include: {
+        course: true,
+        questions: {
+          select: {
+            id: true,
+            questionText: true,
+            questionType: true,
+            options: true,
+            correctAnswers: true
+          }
+        }
+      }
+    });
     if (!quiz || quiz.course.teacherId !== req.user!.id) {
       return res.status(403).json({ message: "You can only view submissions for your quizzes" });
     }
@@ -745,7 +890,22 @@ router.get(
   async (req, res) => {
     const submissions = await prisma.submission.findMany({
       where: { studentId: req.user!.id },
-      include: { quiz: { include: { course: true, questions: true } } },
+      include: {
+        quiz: {
+          include: {
+            course: true,
+            questions: {
+              select: {
+                id: true,
+                questionText: true,
+                questionType: true,
+                options: true,
+                correctAnswers: true
+              }
+            }
+          }
+        }
+      },
       orderBy: [{ startedAt: "desc" }, { attemptNumber: "desc" }]
     });
 

@@ -17,6 +17,8 @@ type Assignment = {
   description: string;
   status: "PENDING" | "APPROVED" | "REJECTED";
   createdAt: string;
+  availableTo: string | null;
+  weightPercent: number;
   courseId: string;
   course: { id: string; title: string };
 };
@@ -36,6 +38,7 @@ type Quiz = {
   availableTo: string | null;
   durationSeconds: number | null;
   allowedAttempts: number;
+  weightPercent?: number;
   totalMarks?: number;
   questions: {
     id: string;
@@ -65,7 +68,12 @@ export const AssignmentsPage: React.FC = () => {
 
   const [assignments, setAssignments] = useState<Assignment[]>([]);
   const [creatingAssignment, setCreatingAssignment] = useState(false);
-  const [assignmentForm, setAssignmentForm] = useState({ title: "", description: "" });
+  const [assignmentForm, setAssignmentForm] = useState({
+    title: "",
+    description: "",
+    availableTo: "",
+    weightPercent: "1"
+  });
 
   const [selectedAssignmentId, setSelectedAssignmentId] = useState<string>("");
   const [submissions, setSubmissions] = useState<AssignmentSubmission[]>([]);
@@ -92,11 +100,13 @@ export const AssignmentsPage: React.FC = () => {
     availableTo: string;
     durationSeconds: string;
     allowedAttempts: string;
+    weightPercent: string;
   }>({
     availableFrom: "",
     availableTo: "",
     durationSeconds: "",
-    allowedAttempts: "1"
+    allowedAttempts: "1",
+    weightPercent: "1"
   });
 
   const [quizSubmissions, setQuizSubmissions] = useState<QuizSubmissionRow[]>([]);
@@ -174,9 +184,11 @@ export const AssignmentsPage: React.FC = () => {
       await api.post("/api/assignments", {
         courseId: selectedCourseId,
         title: assignmentForm.title.trim(),
-        description: assignmentForm.description.trim()
+        description: assignmentForm.description.trim(),
+        availableTo: assignmentForm.availableTo || null,
+        weightPercent: assignmentForm.weightPercent === "" ? null : Number(assignmentForm.weightPercent)
       });
-      setAssignmentForm({ title: "", description: "" });
+      setAssignmentForm({ title: "", description: "", availableTo: "", weightPercent: "1" });
       await loadAssignments();
     } finally {
       setCreatingAssignment(false);
@@ -211,9 +223,23 @@ export const AssignmentsPage: React.FC = () => {
     if (!selectedCourseId || !quizTitle.trim()) return;
     setCreatingQuiz(true);
     try {
-      await api.post("/api/quizzes", { courseId: selectedCourseId, title: quizTitle.trim() });
+      const res = await api.post("/api/quizzes", { courseId: selectedCourseId, title: quizTitle.trim() });
+      const createdQuiz = res.data as any;
       setQuizTitle("");
+      setSelectedQuizId(createdQuiz?.id ?? "");
+      setQuizSettings({
+        availableFrom: toDatetimeLocalValue(createdQuiz?.availableFrom ?? null),
+        availableTo: toDatetimeLocalValue(createdQuiz?.availableTo ?? null),
+        durationSeconds: createdQuiz?.durationSeconds != null ? String(createdQuiz.durationSeconds) : "",
+        allowedAttempts: String(createdQuiz?.allowedAttempts ?? 1),
+        weightPercent: String(createdQuiz?.weightPercent ?? 1)
+      });
+      resetQuestionForm();
+      setEditingQuestionId(null);
       await loadQuizzes(selectedCourseId);
+      toast.success("Quiz created");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to create quiz");
     } finally {
       setCreatingQuiz(false);
     }
@@ -270,6 +296,8 @@ export const AssignmentsPage: React.FC = () => {
       setEditingQuestionId(null);
       await loadQuizzes(selectedCourseId);
       toast.success(editingQuestionId ? "Question updated" : "Question added");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to save question");
     } finally {
       setSavingQuestion(false);
     }
@@ -284,9 +312,13 @@ export const AssignmentsPage: React.FC = () => {
         availableFrom: settings.availableFrom || null,
         availableTo: settings.availableTo || null,
         durationSeconds: settings.durationSeconds === "" ? null : Number(settings.durationSeconds),
-        allowedAttempts: settings.allowedAttempts === "" ? null : Number(settings.allowedAttempts)
+        allowedAttempts: settings.allowedAttempts === "" ? null : Number(settings.allowedAttempts),
+        weightPercent: settings.weightPercent === "" ? null : Number(settings.weightPercent)
       });
       await loadQuizzes(selectedCourseId);
+      toast.success("Quiz published");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Failed to publish quiz");
     } finally {
       setPublishingId(null);
     }
@@ -350,6 +382,25 @@ export const AssignmentsPage: React.FC = () => {
                     className="min-h-[120px]"
                     value={assignmentForm.description}
                     onChange={(e) => setAssignmentForm((p) => ({ ...p, description: e.target.value }))}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Due date (optional)</Label>
+                  <Input
+                    type="datetime-local"
+                    value={assignmentForm.availableTo}
+                    onChange={(e) => setAssignmentForm((p) => ({ ...p, availableTo: e.target.value }))}
+                  />
+                  <div className="text-[11px] text-muted-foreground">After this time, missing submissions count as 0.</div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Weight in final grade (%)</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={assignmentForm.weightPercent}
+                    onChange={(e) => setAssignmentForm((p) => ({ ...p, weightPercent: e.target.value }))}
                   />
                 </div>
                 <Button className="w-full" onClick={createAssignment} disabled={!selectedCourseId || creatingAssignment}>
@@ -537,7 +588,8 @@ export const AssignmentsPage: React.FC = () => {
                                   availableFrom: toDatetimeLocalValue(q.availableFrom),
                                   availableTo: toDatetimeLocalValue(q.availableTo),
                                   durationSeconds: q.durationSeconds != null ? String(q.durationSeconds) : "",
-                                  allowedAttempts: String(q.allowedAttempts ?? 1)
+                                  allowedAttempts: String(q.allowedAttempts ?? 1),
+                                  weightPercent: String(q.weightPercent ?? 1)
                                 });
                                 resetQuestionForm();
                                 setEditingQuestionId(null);
@@ -568,7 +620,8 @@ export const AssignmentsPage: React.FC = () => {
                                       availableFrom: toDatetimeLocalValue(q.availableFrom),
                                       availableTo: toDatetimeLocalValue(q.availableTo),
                                       durationSeconds: q.durationSeconds != null ? String(q.durationSeconds) : "",
-                                      allowedAttempts: String(q.allowedAttempts ?? 1)
+                                      allowedAttempts: String(q.allowedAttempts ?? 1),
+                                      weightPercent: String(q.weightPercent ?? 1)
                                     });
                                     setEditingQuestionId(null);
                                     resetQuestionForm();
@@ -649,11 +702,24 @@ export const AssignmentsPage: React.FC = () => {
                               onChange={(e) => setQuizSettings((p) => ({ ...p, allowedAttempts: e.target.value }))}
                             />
                           </div>
+                          <div className="space-y-2 lg:col-span-2">
+                            <Label>Weight in final grade (%)</Label>
+                            <Input
+                              type="number"
+                              min={0}
+                              step={1}
+                              value={quizSettings.weightPercent}
+                              onChange={(e) => setQuizSettings((p) => ({ ...p, weightPercent: e.target.value }))}
+                            />
+                            <div className="text-[11px] text-muted-foreground">
+                              This controls how much this quiz contributes to the final course grade.
+                            </div>
+                          </div>
                         </div>
 
                         <div className="flex justify-end">
                           <Button
-                            onClick={() => publishQuiz(selectedQuizId).catch(() => {})}
+                            onClick={() => publishQuiz(selectedQuizId)}
                             disabled={publishingId === selectedQuizId || !!selectedQuiz?.published}
                           >
                             {publishingId === selectedQuizId
@@ -719,7 +785,9 @@ export const AssignmentsPage: React.FC = () => {
                                               resetQuestionForm();
                                               loadQuizzes(selectedCourseId).catch(() => {});
                                             })
-                                            .catch(() => {});
+                                            .catch((err: any) => {
+                                              toast.error(err?.response?.data?.message || "Failed to delete question");
+                                            });
                                         }}
                                       >
                                         Delete
@@ -875,7 +943,7 @@ export const AssignmentsPage: React.FC = () => {
                           </div>
 
                           <div className="flex justify-end">
-                            <Button onClick={() => addQuestion().catch(() => {})} disabled={savingQuestion}>
+                            <Button onClick={() => addQuestion()} disabled={savingQuestion}>
                               {savingQuestion ? "Saving…" : editingQuestionId ? "Save changes" : "Add question"}
                             </Button>
                           </div>

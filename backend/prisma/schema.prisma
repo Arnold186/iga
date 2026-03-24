@@ -81,6 +81,9 @@ model Quiz {
   title          String
   courseId       String
   published      Boolean  @default(false)
+  /// Weight of this quiz in the final course grade (relative percentage units).
+  /// Default `1` keeps existing quizzes behaving like a simple average.
+  weightPercent  Float    @default(1)
 
   /** If set, students can only start the quiz within this window. */
   availableFrom  DateTime?
@@ -163,6 +166,12 @@ model Assignment {
   teacherId   String
   status      AssignmentStatus @default(PENDING)
   createdAt   DateTime         @default(now())
+  /// If set, students can submit only until this time. After it expires,
+  /// missing submissions are counted as `0` in weighted grading.
+  availableTo DateTime?
+  /// Weight of this assignment in the final course grade (relative percentage units).
+  /// Default `1` keeps existing assignments behaving like a simple average.
+  weightPercent Float @default(1)
 
   course      Course               @relation(fields: [courseId], references: [id])
   teacher     User                 @relation(fields: [teacherId], references: [id])

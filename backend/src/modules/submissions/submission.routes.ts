@@ -29,9 +29,12 @@ router.patch(
     if (!sub || sub.assignment.teacherId !== req.user!.id) {
       return res.status(404).json({ message: "Submission not found" });
     }
+    // Keep the highest grade ever assigned for this submission.
+    // This ensures a later lower grade doesn't replace the best score.
+    const nextGrade = sub.grade == null ? grade : Math.max(sub.grade, grade);
     const updated = await prisma.assignmentSubmission.update({
       where: { id },
-      data: { grade }
+      data: { grade: nextGrade }
     });
     res.json(updated);
   }

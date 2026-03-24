@@ -75,6 +75,12 @@ type QuizSubmission = {
   };
 };
 
+type CourseProgress = {
+  courseId: string;
+  courseTitle: string;
+  finalPercent: number;
+};
+
 function formatSeconds(secs: number) {
   const m = Math.floor(secs / 60);
   const s = secs % 60;
@@ -102,14 +108,18 @@ export const StudentQuizzesPage: React.FC = () => {
 
   const load = async () => {
     try {
-      const [coursesRes, submissionsRes, assignmentGradesRes] = await Promise.all([
+      const [coursesRes, submissionsRes, courseProgressRes] = await Promise.all([
         api.get<Course[]>("/api/courses/enrolled"),
         api.get<QuizSubmission[]>("/api/quizzes/my"),
-        api.get<any[]>("/api/students/grades").catch(() => ({ data: [] }))
+        api.get<CourseProgress[]>("/api/students/course-progress").catch(() => ({ data: [] as CourseProgress[] }))
       ]);
 
       setEnrolledCourses(coursesRes.data);
       setMySubmissions(submissionsRes.data);
+      const progressMap = (courseProgressRes.data ?? []).reduce<Record<string, number>>((acc, r) => {
+        acc[r.courseId] = r.finalPercent;
+        return acc;
+      }, {});
 
       // Load quizzes for each enrolled course.
       const quizzes = await Promise.all(
@@ -123,50 +133,7 @@ export const StudentQuizzesPage: React.FC = () => {
         })
       );
       setQuizzesByCourse(quizzes);
-
-      // Compute a simple 0-100 course progress percent based on best quiz percent
-      // and assignment grade percent (averaged).
-      const quizBestPercentByQuizId: Record<string, number> = {};
-      for (const s of submissionsRes.data) {
-        if (s.percentScore == null) continue;
-        quizBestPercentByQuizId[s.quizId] = Math.max(quizBestPercentByQuizId[s.quizId] ?? 0, s.percentScore);
-      }
-      const quizPercentsByCourse: Record<string, { sum: number; count: number }> = {};
-      for (const s of submissionsRes.data) {
-        const courseId = s.quiz.course.id;
-        const best = quizBestPercentByQuizId[s.quizId];
-        if (best == null) continue;
-        if (!quizPercentsByCourse[courseId]) quizPercentsByCourse[courseId] = { sum: 0, count: 0 };
-        // Count each quiz once (based on quizId).
-        if (s.percentScore != null && best === s.percentScore) {
-          quizPercentsByCourse[courseId].sum += best;
-          quizPercentsByCourse[courseId].count += 1;
-        }
-      }
-
-      const assignmentPercentsByCourse: Record<string, { sum: number; count: number }> = {};
-      for (const g of assignmentGradesRes.data) {
-        const courseId = g.assignment?.course?.id;
-        const grade = g.grade;
-        if (!courseId || grade == null) continue;
-        if (!assignmentPercentsByCourse[courseId]) assignmentPercentsByCourse[courseId] = { sum: 0, count: 0 };
-        assignmentPercentsByCourse[courseId].sum += grade;
-        assignmentPercentsByCourse[courseId].count += 1;
-      }
-
-      const computed: Record<string, number> = {};
-      for (const c of coursesRes.data) {
-        const quizBucket = quizPercentsByCourse[c.id];
-        const assignmentBucket = assignmentPercentsByCourse[c.id];
-        const quizAvg = quizBucket?.count ? quizBucket.sum / quizBucket.count : null;
-        const assignmentAvg = assignmentBucket?.count ? assignmentBucket.sum / assignmentBucket.count : null;
-
-        if (quizAvg == null && assignmentAvg == null) computed[c.id] = 0;
-        else if (quizAvg != null && assignmentAvg != null) computed[c.id] = Math.round((quizAvg + assignmentAvg) / 2);
-        else computed[c.id] = Math.round((quizAvg ?? assignmentAvg) as number);
-      }
-
-      setProgressByCourse(computed);
+      setProgressByCourse(progressMap);
     } catch (err: any) {
       toast.error(err?.response?.data?.message || "Failed to load quizzes");
     }
@@ -334,9 +301,7 @@ export const StudentQuizzesPage: React.FC = () => {
                           </div>
                           <Button
                             className="shrink-0"
-                            disabled={
-                              q.availabilityStatus !== "AVAILABLE" || q.attemptsLeft <= 0
-                            }
+                            disabled={q.attemptsLeft <= 0}
                             onClick={() => startQuiz(q).catch(() => {})}
                           >
                             Start

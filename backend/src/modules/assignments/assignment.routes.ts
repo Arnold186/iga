@@ -18,10 +18,19 @@ const ALLOWED_DOC_TYPES = [
   "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 ];
 
+function parseNullableDate(raw: unknown): Date | null {
+  if (raw === undefined || raw === null || raw === "") return null;
+  const d = new Date(String(raw));
+  if (Number.isNaN(d.getTime())) throw new Error("Invalid datetime");
+  return d;
+}
+
 const createAssignmentSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1),
-  courseId: z.string().uuid()
+  courseId: z.string().uuid(),
+  availableTo: z.any().optional().nullable(),
+  weightPercent: z.any().optional().nullable()
 });
 
 /**
@@ -66,6 +75,8 @@ router.post(
       title: string;
       description: string;
       courseId: string;
+      availableTo?: unknown;
+      weightPercent?: unknown;
     };
 
     const course = await prisma.course.findUnique({
@@ -80,12 +91,31 @@ router.post(
       return res.status(403).json({ message: "You can only create assignments for your courses" });
     }
 
+    const availableTo = (() => {
+      try {
+        return parseNullableDate((req.body as any).availableTo);
+      } catch {
+        throw new Error("Invalid availableTo");
+      }
+    })();
+
+    const weightPercentRaw = (req.body as any).weightPercent;
+    const weightPercent =
+      weightPercentRaw === undefined || weightPercentRaw === null || weightPercentRaw === ""
+        ? 1
+        : Number(weightPercentRaw);
+    if (!Number.isFinite(weightPercent) || weightPercent < 0) {
+      return res.status(400).json({ message: "weightPercent must be a number >= 0" });
+    }
+
     const assignment = await prisma.assignment.create({
       data: {
         title,
         description,
         courseId,
-        teacherId: req.user!.id
+        teacherId: req.user!.id,
+        availableTo,
+        weightPercent
       }
     });
 
@@ -136,6 +166,10 @@ router.post(
       include: { course: true }
     });
     if (!assignment) return res.status(404).json({ message: "Assignment not found" });
+    const now = new Date();
+    if (assignment.availableTo && now > assignment.availableTo) {
+      return res.status(403).json({ message: "Assignment is no longer available" });
+    }
     if (assignment.status !== AssignmentStatus.APPROVED) {
       return res.status(400).json({ message: "Assignment is not approved for submission" });
     }

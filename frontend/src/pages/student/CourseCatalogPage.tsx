@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { toast } from "react-toastify";
 
 import { api } from "../../services/api";
 import { Button } from "../../components/ui/button";
@@ -53,6 +54,9 @@ export const CourseCatalogPage: React.FC = () => {
     try {
       await api.post(`/api/courses/${courseId}/enroll`);
       setEnrolledIds((prev) => new Set(prev).add(courseId));
+      toast.success("Enrolled");
+    } catch (err: any) {
+      toast.error(err?.response?.data?.message || "Enrollment failed");
     } finally {
       setEnrollingId(null);
     }

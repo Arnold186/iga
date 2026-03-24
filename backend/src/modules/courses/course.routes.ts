@@ -1,7 +1,7 @@
 import { Router } from "express";
 import * as jwt from "jsonwebtoken";
 import { authenticate, requireRole } from "../../middleware/auth";
-import { Role, CourseStatus } from "@prisma/client";
+import { AssignmentStatus, CourseStatus, Role, SubmissionStatus } from "@prisma/client";
 import { prisma } from "../../prisma/client";
 import { z } from "zod";
 import { validateBody } from "../../middleware/validate";
@@ -29,6 +29,20 @@ const createCourseSchema = z.object({
   title: z.string().min(1),
   description: z.string().min(1)
 });
+
+function parseOptionsMarks(rawOptions: string): number {
+  try {
+    const parsed = JSON.parse(rawOptions);
+    if (parsed && typeof parsed === "object" && Array.isArray((parsed as any).values)) {
+      const marksRaw = Number((parsed as any).marks ?? 1);
+      return Number.isFinite(marksRaw) && marksRaw > 0 ? marksRaw : 1;
+    }
+    if (Array.isArray(parsed)) return 1;
+  } catch {
+    // ignore
+  }
+  return 1;
+}
 
 /**
  * GET /api/courses/documents/serve?token=JWT
@@ -535,6 +549,161 @@ router.get(
       include: { student: { select: { id: true, firstName: true, lastName: true, email: true } } }
     });
     res.json(enrollments);
+  }
+);
+
+/**
+ * Teacher-only: course cards -> students -> quiz/assignment marks + missing tags.
+ * Used by the teacher "Students" page.
+ */
+router.get(
+  "/my/students-progress",
+  authenticate,
+  requireRole([Role.TEACHER]),
+  async (req, res) => {
+    const now = new Date();
+
+    const courses = await prisma.course.findMany({
+      where: { teacherId: req.user!.id },
+      select: { id: true, title: true }
+    });
+    if (courses.length === 0) return res.json([]);
+    const courseIds = courses.map((c) => c.id);
+
+    const enrollments = await prisma.enrollment.findMany({
+      where: { courseId: { in: courseIds } },
+      include: { student: { select: { id: true, firstName: true, lastName: true, email: true } } }
+    });
+
+    const studentIds = Array.from(new Set(enrollments.map((e) => e.studentId)));
+
+    const [quizzes, assignments] = await Promise.all([
+      prisma.quiz.findMany({
+        where: { courseId: { in: courseIds }, published: true },
+        include: { questions: { select: { options: true } } }
+      }),
+      prisma.assignment.findMany({
+        where: { courseId: { in: courseIds }, status: AssignmentStatus.APPROVED }
+      })
+    ]);
+
+    const quizIds = quizzes.map((q) => q.id);
+    const assignmentIds = assignments.map((a) => a.id);
+
+    const [quizSubmissions, assignmentSubmissions] = await Promise.all([
+      quizIds.length
+        ? prisma.submission.findMany({
+            where: {
+              quizId: { in: quizIds },
+              studentId: { in: studentIds },
+              status: SubmissionStatus.COMPLETED
+            },
+            select: { quizId: true, studentId: true, score: true }
+          })
+        : Promise.resolve([] as Array<{ quizId: string; studentId: string; score: number | null }>),
+      assignmentIds.length
+        ? prisma.assignmentSubmission.findMany({
+            where: { assignmentId: { in: assignmentIds }, studentId: { in: studentIds } },
+            select: { assignmentId: true, studentId: true, grade: true }
+          })
+        : Promise.resolve([] as Array<{ assignmentId: string; studentId: string; grade: number | null }>)
+    ]);
+
+    const totalMarksByQuizId: Record<string, number> = {};
+    for (const q of quizzes) {
+      totalMarksByQuizId[q.id] = q.questions.reduce((sum, qq: any) => sum + parseOptionsMarks(qq.options), 0);
+    }
+
+    const bestQuizScoreByStudentIdQuizId: Record<string, number> = {};
+    for (const s of quizSubmissions) {
+      if (s.score == null) continue;
+      const key = `${s.studentId}:${s.quizId}`;
+      bestQuizScoreByStudentIdQuizId[key] = Math.max(bestQuizScoreByStudentIdQuizId[key] ?? 0, s.score);
+    }
+
+    const submissionGradeByStudentIdAssignmentId: Record<string, number | null> = {};
+    for (const sub of assignmentSubmissions) {
+      // Keep even null grades so we can distinguish:
+      // "not submitted at all" vs "submitted but not graded yet".
+      const key = `${sub.studentId}:${sub.assignmentId}`;
+      submissionGradeByStudentIdAssignmentId[key] = sub.grade;
+    }
+
+    const enrollmentsByCourseId: Record<string, typeof enrollments> = {};
+    for (const e of enrollments) {
+      enrollmentsByCourseId[e.courseId] = enrollmentsByCourseId[e.courseId] ?? [];
+      enrollmentsByCourseId[e.courseId].push(e);
+    }
+
+    const quizzesByCourseId: Record<string, typeof quizzes> = {};
+    for (const q of quizzes) {
+      quizzesByCourseId[q.courseId] = quizzesByCourseId[q.courseId] ?? [];
+      quizzesByCourseId[q.courseId].push(q);
+    }
+
+    const assignmentsByCourseId: Record<string, typeof assignments> = {};
+    for (const a of assignments) {
+      assignmentsByCourseId[a.courseId] = assignmentsByCourseId[a.courseId] ?? [];
+      assignmentsByCourseId[a.courseId].push(a);
+    }
+
+    res.json(
+      courses.map((course) => {
+        const courseStudents = enrollmentsByCourseId[course.id] ?? [];
+        const courseQuizzes = quizzesByCourseId[course.id] ?? [];
+        const courseAssignments = assignmentsByCourseId[course.id] ?? [];
+
+        return {
+          course,
+          students: courseStudents.map((en) => {
+            const student = en.student;
+
+            const quizItems = courseQuizzes.map((q) => {
+              const totalMarks = totalMarksByQuizId[q.id] ?? 0;
+              const weight = (q.weightPercent ?? 1) as number;
+              const expired = q.availableTo != null && now > q.availableTo;
+              const bestScoreKey = `${student.id}:${q.id}`;
+              const bestScore = bestQuizScoreByStudentIdQuizId[bestScoreKey];
+              const percentScore =
+                bestScore != null && totalMarks > 0 ? Math.round((bestScore / Math.max(1, totalMarks)) * 100) : null;
+              const isMissing = bestScore == null && expired;
+              return {
+                type: "QUIZ",
+                id: q.id,
+                title: q.title,
+                weightPercent: weight,
+                totalMarks,
+                score: bestScore != null ? bestScore : null,
+                percentScore: isMissing ? 0 : percentScore,
+                isMissing
+              };
+            });
+
+            const assignmentItems = courseAssignments.map((a) => {
+              const weight = (a.weightPercent ?? 1) as number;
+              const expired = a.availableTo != null && now > a.availableTo;
+              const key = `${student.id}:${a.id}`;
+              const hasSubmission = Object.prototype.hasOwnProperty.call(submissionGradeByStudentIdAssignmentId, key);
+              const grade = submissionGradeByStudentIdAssignmentId[key];
+              const isMissing = !hasSubmission && expired;
+              return {
+                type: "ASSIGNMENT",
+                id: a.id,
+                title: a.title,
+                weightPercent: weight,
+                percentScore: hasSubmission && grade != null ? grade : isMissing ? 0 : null,
+                isMissing
+              };
+            });
+
+            return {
+              student,
+              items: [...quizItems, ...assignmentItems]
+            };
+          })
+        };
+      })
+    );
   }
 );
 
